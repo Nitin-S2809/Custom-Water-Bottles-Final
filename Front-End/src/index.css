@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+}
+
+/* Custom cursor dot */
+.custom-cursor {
+  width: 11px;
+  height: 11px;
+  margin-left: -7px;
+  margin-top: -7px;
+  transition: width 0.2s ease, height 0.2s ease, opacity 0.2s ease;
+}
+
+/* On hover expand */
+.custom-cursor.cursor-hover {
+  width: 45px;
+  height: 45px;
+  margin-left: -22px;
+  margin-top: -22px;
+  opacity: 0.18;
+}
