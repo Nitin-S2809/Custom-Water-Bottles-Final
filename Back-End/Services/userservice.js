@@ -1,4 +1,4 @@
-const userModel = require('../MODELS/userModel');
+const userModel = require('../MODELS/usermodel');
 
 module.exports.createUser = async ({ username, email, password }) => {
     if (!username || !email || !password) {
