@@ -20,7 +20,7 @@ export default function UserProfile() {
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    fetch(`http://localhost:5000/api/orders/user/${user._id}`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`${import.meta.env.VITE_API_URL}/api/orders/user/${user._id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Unable to load orders."))))
       .then((data) => { setOrders(Array.isArray(data.orders) ? data.orders : []); setStatus("ready"); })
       .catch(() => setStatus("error"));

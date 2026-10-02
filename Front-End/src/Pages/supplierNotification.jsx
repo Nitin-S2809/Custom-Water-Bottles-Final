@@ -42,7 +42,7 @@ export default function SupplierNotification({ onUnreadCountChange }) {
         return;
       }
       try {
-        const response = await fetch("http://localhost:5000/api/suppliers/dashboard", {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/dashboard`, {
           headers: { Authorization: `Bearer ${token}` },
           signal: controller.signal,
         });

@@ -81,7 +81,7 @@ export default function OrderBottle() {
     if (!user?._id || !token) return;
 
     setAddressLookupLoading(true);
-    fetch(`http://localhost:5000/api/addresses/${user._id}`, {
+    fetch(`${import.meta.env.VITE_API_URL}/api/addresses/${user._id}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((response) => (response.ok ? response.json() : null))
@@ -96,7 +96,7 @@ export default function OrderBottle() {
     setPricingError(null);
 
     try {
-      const response = await fetch("http://localhost:5000/api/orders/calculate-price", {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/orders/calculate-price`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

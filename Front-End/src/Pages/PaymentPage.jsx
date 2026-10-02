@@ -189,7 +189,7 @@ export default function PaymentPage() {
 
     setAddressLoading(true);
     setAddressError("");
-    fetch(`http://localhost:5000/api/addresses/${user._id}`, {
+    fetch(`${import.meta.env.VITE_API_URL}/api/addresses/${user._id}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(async (response) => {
@@ -320,7 +320,7 @@ export default function PaymentPage() {
       formData.append("country", finalOrder.deliveryAddress.country || "India");
       formData.append("totalAmount", String(pricing.total ?? ""));
 
-      const apiUrl = "http://localhost:5000/api/orders/payment/create-order";
+      const apiUrl = `${import.meta.env.VITE_API_URL}/api/orders/payment/create-order`;
       if (logoFile instanceof File) {
         formData.append("logo", logoFile, logoFile.name);
       } else if (typeof order.logo === "string" && order.logo) {
@@ -358,7 +358,7 @@ export default function PaymentPage() {
           notes: { paymentMethod: selectedMethod },
           handler: async (paymentResponse) => {
             try {
-              const verificationResponse = await fetch("http://localhost:5000/api/orders/payment/verify", {
+              const verificationResponse = await fetch(`${import.meta.env.VITE_API_URL}/api/orders/payment/verify`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(paymentResponse),

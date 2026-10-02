@@ -73,7 +73,7 @@ export default function SupplierSupport() {
         return;
       }
       try {
-        const response = await fetch("http://localhost:5000/api/suppliers/support-contact", {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/support-contact`, {
           headers: { Authorization: `Bearer ${token}` },
           signal: controller.signal,
         });
@@ -105,7 +105,7 @@ export default function SupplierSupport() {
 
     setSending(true);
     try {
-      const response = await fetch("http://localhost:5000/api/suppliers/support", {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/support`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ subject, message: message.trim() }),

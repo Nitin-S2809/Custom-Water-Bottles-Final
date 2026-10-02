@@ -241,7 +241,7 @@ export default function SupplierOrderDetails({
     setError("");
 
     try {
-      const response = await fetch(`http://localhost:5000/api/suppliers/orders/${encodeURIComponent(orderId)}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${encodeURIComponent(orderId)}`, {
         method: "GET",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -286,7 +286,7 @@ export default function SupplierOrderDetails({
     setToast(null);
 
     try {
-      const response = await fetch(`http://localhost:5000/api/suppliers/orders/${encodeURIComponent(orderId)}/status`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${encodeURIComponent(orderId)}/status`, {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -319,7 +319,7 @@ export default function SupplierOrderDetails({
     setError("");
 
     try {
-      const response = await fetch(`http://localhost:5000/api/suppliers/orders/${encodeURIComponent(orderId)}/generate-delivery-otp`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${encodeURIComponent(orderId)}/generate-delivery-otp`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -346,7 +346,7 @@ export default function SupplierOrderDetails({
     setError("");
 
     try {
-      const response = await fetch(`http://localhost:5000/api/suppliers/orders/${encodeURIComponent(orderId)}/verify-delivery-otp`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${encodeURIComponent(orderId)}/verify-delivery-otp`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -379,7 +379,7 @@ export default function SupplierOrderDetails({
     setError("");
 
     try {
-      const response = await fetch(`http://localhost:5000/api/suppliers/orders/${encodeURIComponent(orderId)}/initiate-payout`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${encodeURIComponent(orderId)}/initiate-payout`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });

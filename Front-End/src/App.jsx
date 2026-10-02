@@ -79,7 +79,7 @@ function AdminGate() {
 
     const checkAdmin = async () => {
       try {
-        const response = await fetch("http://localhost:5000/api/admin/status");
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/status`);
         const data = await response.json().catch(() => ({ adminExists: false }));
         if (active) {
           setAdminExists(Boolean(data.adminExists));
@@ -133,7 +133,7 @@ function AdminSignupRoute() {
 
     const checkAdmin = async () => {
       try {
-        const response = await fetch("http://localhost:5000/api/admin/status");
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/status`);
         const data = await response.json().catch(() => ({ adminExists: false }));
         if (active) {
           setAdminExists(Boolean(data.adminExists));
@@ -188,7 +188,7 @@ function ProtectedAdminRoute({ children }) {
 
     const checkAdmin = async () => {
       try {
-        const response = await fetch("http://localhost:5000/api/admin/status");
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/status`);
         const data = await response.json().catch(() => ({ adminExists: false }));
         if (active) {
           setAdminExists(Boolean(data.adminExists));

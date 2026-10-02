@@ -47,7 +47,7 @@ export default function SupplierInvoice() {
       }
       try {
         setLoading(true);
-        const response = await fetch("http://localhost:5000/api/suppliers/invoices", { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/invoices`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
         const responseData = await response.json();
         if (!response.ok) throw new Error(responseData.message || "Unable to load invoices and payments");
         setData({ invoices: Array.isArray(responseData.invoices) ? responseData.invoices : [], payments: Array.isArray(responseData.payments) ? responseData.payments : [] });
@@ -81,7 +81,7 @@ export default function SupplierInvoice() {
   const downloadStatement = async () => {
     setDownloading(true);
     try {
-      const response = await fetch("http://localhost:5000/api/suppliers/statement", { headers: { Authorization: `Bearer ${token}` } });
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/statement`, { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) throw new Error("Unable to download statement");
       downloadBlob(await response.blob(), "supplier-statement.csv");
     } catch (downloadError) {

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Download, Eye, FileText, X } from "lucide-react";
 import { adminFetch } from "../utils/adminAuth";
 
-const API_BASE = "http://localhost:5000";
+const API_BASE = import.meta.env.VITE_API_URL;
 
 const valueOrFallback = (value) => value === undefined || value === null || value === "" ? "Not provided" : value;
 

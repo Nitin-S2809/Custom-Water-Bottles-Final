@@ -175,7 +175,7 @@ function OrderDetails({ order, onClose, onStatusUpdated, token }) {
     setStatusMessage("");
 
     try {
-      const response = await fetch(`http://localhost:5000/api/suppliers/orders/${order._id}/status`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${order._id}/status`, {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -208,7 +208,7 @@ function OrderDetails({ order, onClose, onStatusUpdated, token }) {
     setStatusMessage("");
 
     try {
-      const response = await fetch(`http://localhost:5000/api/suppliers/orders/${order._id}/generate-delivery-otp`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${order._id}/generate-delivery-otp`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -233,7 +233,7 @@ function OrderDetails({ order, onClose, onStatusUpdated, token }) {
     setStatusMessage("");
 
     try {
-      const response = await fetch(`http://localhost:5000/api/suppliers/orders/${order._id}/verify-delivery-otp`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${order._id}/verify-delivery-otp`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -434,7 +434,7 @@ export default function SupplierOrders() {
       setError("");
 
       try {
-        const response = await fetch("http://localhost:5000/api/suppliers/orders", {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await response.json();
@@ -499,7 +499,7 @@ export default function SupplierOrders() {
 
     setDetailsLoading(true);
     try {
-      const response = await fetch(`http://localhost:5000/api/suppliers/orders/${orderId}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${orderId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await response.json();

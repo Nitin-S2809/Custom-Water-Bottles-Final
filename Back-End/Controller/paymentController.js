@@ -52,11 +52,12 @@ const createPaymentOrder = async (req, res) => {
     }
 
     const { pricing } = pricingResult;
+    const safeLogoUrl = req.file ? `/uploads/${req.file.filename}` : (logoUrl || "");
     const localOrder = await orderService.createOrder({
       userId,
       bottleType,
       quantity: Number(quantity),
-      logoUrl: req.file ? `/uploads/${req.file.filename}` : logoUrl,
+      logoUrl: safeLogoUrl,
       brandName: brandName || "",
       printing: printing || "Single Color Logo",
       specialInstructions: specialInstructions || "",

@@ -84,7 +84,7 @@ const SupplierSignup = () => {
       Object.entries(formData).forEach(([name, value]) => signupData.append(name, String(value)));
       signupData.append("fssaiCertificate", documents.fssaiCertificate);
       signupData.append("gstCertificate", documents.gstCertificate);
-      const response = await fetch("http://localhost:5000/api/suppliers/signup", {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/signup`, {
         method: "POST",
         body: signupData,
       });

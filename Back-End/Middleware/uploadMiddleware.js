@@ -2,9 +2,18 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
+const publicUploadDirectory = path.resolve(__dirname, "../uploads");
+fs.mkdirSync(publicUploadDirectory, { recursive: true });
+
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, "uploads/");
+    fs.mkdir(publicUploadDirectory, { recursive: true }, (error) => {
+      if (error) {
+        return cb(error);
+      }
+
+      cb(null, publicUploadDirectory);
+    });
   },
 
   filename: function (req, file, cb) {
@@ -97,3 +106,4 @@ const supplierDocumentUpload = (req, res, next) => {
 
 module.exports = upload;
 module.exports.supplierDocumentUpload = supplierDocumentUpload;
+module.exports.publicUploadDirectory = publicUploadDirectory;

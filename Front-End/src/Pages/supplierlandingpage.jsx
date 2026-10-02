@@ -176,7 +176,7 @@ function SupplierSettings() {
     const loadProfile = async () => {
       if (!token) return;
       try {
-        const response = await fetch("http://localhost:5000/api/suppliers/dashboard", {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/dashboard`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await response.json();
@@ -207,7 +207,7 @@ function SupplierSettings() {
     }
 
     try {
-      const response = await fetch("http://localhost:5000/api/suppliers/profile", {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/profile`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify(form),
@@ -296,7 +296,7 @@ export default function SupplierLandingPage() {
       }
 
       try {
-        const response = await fetch("http://localhost:5000/api/suppliers/dashboard", {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/dashboard`, {
           headers: { Authorization: `Bearer ${token}` },
           signal: controller.signal,
         });
@@ -347,7 +347,7 @@ export default function SupplierLandingPage() {
     setActionId(String(orderId));
     setFeedback(null);
     try {
-      const response = await fetch(`http://localhost:5000/api/suppliers/orders/${orderId}/status`, { method: "PATCH", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${orderId}/status`, { method: "PATCH", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Unable to update order");
       setFeedback({ type: "success", text: status === "accepted" ? "Order accepted and moved to active orders." : "Order rejected successfully." });

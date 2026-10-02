@@ -88,7 +88,7 @@ export default function SupplierProfile({ supplier: initialSupplier, onSaved }) 
     setSaving(true);
 
     try {
-      const response = await fetch("http://localhost:5000/api/suppliers/profile", {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/profile`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

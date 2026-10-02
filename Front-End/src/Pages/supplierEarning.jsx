@@ -91,7 +91,7 @@ export default function SupplierEarning() {
 
       try {
         setLoading(true);
-        const response = await fetch(`http://localhost:5000/api/suppliers/earnings?months=${period}`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/earnings?months=${period}`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || "Unable to load earnings");
         setEarnings({ ...emptyEarnings, ...data });
