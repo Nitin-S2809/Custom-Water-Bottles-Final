@@ -46,20 +46,21 @@ const normalizeUser = (user) => {
 const readStoredUser = () => {
   if (typeof window === "undefined") return null;
 
-  const savedUser = localStorage.getItem(STORAGE_KEYS.user);
+  const savedUser = localStorage.getItem(STORAGE_KEYS.user) || sessionStorage.getItem(STORAGE_KEYS.user);
   if (!savedUser) return null;
 
   try {
     return normalizeUser(JSON.parse(savedUser));
   } catch {
     localStorage.removeItem(STORAGE_KEYS.user);
+    sessionStorage.removeItem(STORAGE_KEYS.user);
     return null;
   }
 };
 
 const readStoredToken = () => {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(STORAGE_KEYS.token) || null;
+  return localStorage.getItem(STORAGE_KEYS.token) || sessionStorage.getItem(STORAGE_KEYS.token) || null;
 };
 
 export const AuthProvider = ({ children }) => {
@@ -78,28 +79,32 @@ export const AuthProvider = ({ children }) => {
       if (typeof window !== "undefined") {
         localStorage.removeItem(STORAGE_KEYS.user);
         localStorage.removeItem(STORAGE_KEYS.token);
+        sessionStorage.removeItem(STORAGE_KEYS.user);
+        sessionStorage.removeItem(STORAGE_KEYS.token);
       }
       setUser(null);
       setToken(null);
     }
   }, [token, user]);
 
-  const login = ({ user: nextUser, token: nextToken }) => {
+  const login = ({ user: nextUser, token: nextToken, rememberMe = true }) => {
     const normalizedUser = normalizeUser(nextUser);
     setUser(normalizedUser);
     setToken(nextToken || null);
 
     if (typeof window !== "undefined") {
+      localStorage.removeItem(STORAGE_KEYS.user);
+      localStorage.removeItem(STORAGE_KEYS.token);
+      sessionStorage.removeItem(STORAGE_KEYS.user);
+      sessionStorage.removeItem(STORAGE_KEYS.token);
+
+      const storage = rememberMe ? localStorage : sessionStorage;
       if (normalizedUser) {
-        localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(normalizedUser));
-      } else {
-        localStorage.removeItem(STORAGE_KEYS.user);
+        storage.setItem(STORAGE_KEYS.user, JSON.stringify(normalizedUser));
       }
 
       if (nextToken) {
-        localStorage.setItem(STORAGE_KEYS.token, nextToken);
-      } else {
-        localStorage.removeItem(STORAGE_KEYS.token);
+        storage.setItem(STORAGE_KEYS.token, nextToken);
       }
     }
   };
@@ -111,6 +116,8 @@ export const AuthProvider = ({ children }) => {
     if (typeof window !== "undefined") {
       localStorage.removeItem(STORAGE_KEYS.user);
       localStorage.removeItem(STORAGE_KEYS.token);
+      sessionStorage.removeItem(STORAGE_KEYS.user);
+      sessionStorage.removeItem(STORAGE_KEYS.token);
     }
   };
 

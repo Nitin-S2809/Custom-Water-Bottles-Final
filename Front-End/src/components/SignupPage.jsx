@@ -66,13 +66,13 @@ const SignupPage = () => {
               <Link to="/login" className="text-sm font-medium text-blue-600 hover:text-blue-700">Login</Link>
             </div>
 
-            <form className="space-y-5" onSubmit={handleSubmit}>
+            <form className="space-y-5" onSubmit={handleSubmit} autoComplete="off">
               <label className="block text-sm font-medium text-slate-700">
                 Full Name
                 <input
                   type="text"
                   name="username"
-                  autoComplete="name"
+                  autoComplete="off"
                   minLength={3}
                   value={formData.username}
                   onChange={handleChange}
@@ -87,7 +87,7 @@ const SignupPage = () => {
                 <input
                   type="email"
                   name="email"
-                  autoComplete="email"
+                  autoComplete="off"
                   value={formData.email}
                   onChange={handleChange}
                   placeholder="Enter your email"

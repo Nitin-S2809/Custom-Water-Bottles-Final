@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Navbar from "./components/Navbar";
 import Hero from "./components/Hero";
 import TrustBadge from "./components/TrustBadge";
@@ -43,6 +43,57 @@ const decodeJwtRole = (token) => {
   return payload?.role || null;
 };
 
+function useAdminStatus() {
+  const [adminStatus, setAdminStatus] = useState({ state: "loading" });
+
+  useEffect(() => {
+    let active = true;
+
+    const checkAdminStatus = async () => {
+      try {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/status`, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("Unable to check admin status");
+        }
+
+        const data = await response.json();
+        if (typeof data?.adminExists !== "boolean") {
+          throw new Error("Invalid admin status response");
+        }
+
+        if (active) {
+          setAdminStatus({ state: "success", adminExists: data.adminExists });
+        }
+      } catch (error) {
+        if (active) {
+          setAdminStatus({ state: "error", error });
+        }
+      }
+    };
+
+    checkAdminStatus();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return adminStatus;
+}
+
+function AdminLoading() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-500">
+      Loading admin access...
+    </div>
+  );
+}
+
+const hasInvalidAdminToken = (token) => {
+  if (!token) return false;
+  const payload = decodeJwtPayload(token);
+  return !payload || typeof payload.exp !== "number" || typeof payload.role !== "string" || isTokenExpired(token);
+};
+
 function Home() {
   const location = useLocation();
 
@@ -63,53 +114,27 @@ function Home() {
 
 function AdminGate() {
   const { token, logout } = useAuth();
-  const [adminExists, setAdminExists] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const adminStatus = useAdminStatus();
+  const invalidToken = hasInvalidAdminToken(token);
+  const role = decodeJwtRole(token);
 
-  const role = useMemo(() => decodeJwtRole(token), [token]);
-  const isExpired = Boolean(token && isTokenExpired(token));
+  useEffect(() => {
+    if (invalidToken) logout();
+  }, [invalidToken, logout]);
 
-  if (isExpired) {
-    logout();
+  if (invalidToken) {
     return <Navigate to="/admin/login" replace state={{ message: "Your admin session expired. Please log in again." }} />;
   }
 
-  useEffect(() => {
-    let active = true;
-
-    const checkAdmin = async () => {
-      try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/status`);
-        const data = await response.json().catch(() => ({ adminExists: false }));
-        if (active) {
-          setAdminExists(Boolean(data.adminExists));
-        }
-      } catch {
-        if (active) {
-          setAdminExists(false);
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    checkAdmin();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-500">
-        Loading admin access...
-      </div>
-    );
+  if (adminStatus.state === "loading") {
+    return <AdminLoading />;
   }
 
-  if (!adminExists) {
+  if (adminStatus.state === "error") {
+    return <Navigate to="/admin/login" replace state={{ message: "Unable to verify admin status. Please log in." }} />;
+  }
+
+  if (!adminStatus.adminExists) {
     return <AdminSignupPage />;
   }
 
@@ -125,45 +150,17 @@ function AdminGate() {
 }
 
 function AdminSignupRoute() {
-  const [adminExists, setAdminExists] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const adminStatus = useAdminStatus();
 
-  useEffect(() => {
-    let active = true;
-
-    const checkAdmin = async () => {
-      try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/status`);
-        const data = await response.json().catch(() => ({ adminExists: false }));
-        if (active) {
-          setAdminExists(Boolean(data.adminExists));
-        }
-      } catch {
-        if (active) {
-          setAdminExists(false);
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    checkAdmin();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-500">
-        Loading admin access...
-      </div>
-    );
+  if (adminStatus.state === "loading") {
+    return <AdminLoading />;
   }
 
-  if (adminExists) {
+  if (adminStatus.state === "error") {
+    return <Navigate to="/admin/login" replace state={{ message: "Unable to verify admin status. Please log in." }} />;
+  }
+
+  if (adminStatus.adminExists) {
     return <Navigate to="/admin/login" replace />;
   }
 
@@ -172,57 +169,35 @@ function AdminSignupRoute() {
 
 function ProtectedAdminRoute({ children }) {
   const { token, logout } = useAuth();
-  const [adminExists, setAdminExists] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const adminStatus = useAdminStatus();
+  const invalidToken = hasInvalidAdminToken(token);
+  const role = decodeJwtRole(token);
 
-  const role = useMemo(() => decodeJwtRole(token), [token]);
-  const isExpired = Boolean(token && isTokenExpired(token));
+  useEffect(() => {
+    if (invalidToken) logout();
+  }, [invalidToken, logout]);
 
-  if (isExpired) {
-    logout();
+  if (invalidToken) {
     return <Navigate to="/admin/login" replace state={{ message: "Your admin session expired. Please log in again." }} />;
   }
 
-  useEffect(() => {
-    let active = true;
-
-    const checkAdmin = async () => {
-      try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/status`);
-        const data = await response.json().catch(() => ({ adminExists: false }));
-        if (active) {
-          setAdminExists(Boolean(data.adminExists));
-        }
-      } catch {
-        if (active) {
-          setAdminExists(false);
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    checkAdmin();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-500">
-        Loading admin access...
-      </div>
-    );
+  if (adminStatus.state === "loading") {
+    return <AdminLoading />;
   }
 
-  if (!adminExists) {
+  if (adminStatus.state === "error") {
+    return <Navigate to="/admin/login" replace state={{ message: "Unable to verify admin status. Please log in." }} />;
+  }
+
+  if (!adminStatus.adminExists) {
     return <AdminSignupPage />;
   }
 
-  if (!token || role !== "admin") {
+  if (!token) {
+    return <Navigate to="/admin/login" replace />;
+  }
+
+  if (role !== "admin") {
     return <AdminAccessDenied />;
   }
 

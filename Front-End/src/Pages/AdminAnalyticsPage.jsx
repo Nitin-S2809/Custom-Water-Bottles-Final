@@ -574,7 +574,7 @@ export default function AdminAnalyticsPage() {
               type="button"
               onClick={() => {
                 logout();
-                navigate("/admin/admin/login", { replace: true });
+                navigate("/admin/login", { replace: true });
               }}
               className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm text-slate-200"
             >

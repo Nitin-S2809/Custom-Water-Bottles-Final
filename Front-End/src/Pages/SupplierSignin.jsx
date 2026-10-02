@@ -37,7 +37,7 @@ const SupplierSignin = () => {
         throw new Error(data.message || "Supplier login failed");
       }
 
-      login({ user: data.supplier, token: data.token });
+      login({ user: data.supplier, token: data.token, rememberMe });
       navigate("/supplierlandingpage");
     } catch (loginError) {
       setError(loginError.message || "Unable to log in");
@@ -62,7 +62,7 @@ const SupplierSignin = () => {
             </div>
 
             {/* Form */}
-            <form className="space-y-6" onSubmit={handleSubmit}>
+            <form className="space-y-6" onSubmit={handleSubmit} autoComplete="off">
               {/* Business Email */}
               <label className="block text-sm font-medium text-slate-700">
                 <div className="flex items-center gap-2 mb-3">
@@ -72,6 +72,7 @@ const SupplierSignin = () => {
                 <input
                   type="email"
                   name="businessEmail"
+                  autoComplete="username"
                   value={formData.businessEmail}
                   onChange={handleChange}
                   placeholder="Business Email"
@@ -89,6 +90,7 @@ const SupplierSignin = () => {
                   <input
                     type={showPassword ? "text" : "password"}
                       name="password"
+                      autoComplete="current-password"
                       value={formData.password}
                       onChange={handleChange}
                     placeholder="Password"

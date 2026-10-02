@@ -39,9 +39,9 @@ function ForgotPasswordPage() {
           </div> : <>
             <h1 className="mt-6 text-3xl font-bold tracking-tight text-slate-900">Forgot your password?</h1>
             <p className="mt-3 text-sm leading-6 text-slate-600">Enter the email address associated with your account and we&apos;ll help you reset your password.</p>
-            <form className="mt-7 space-y-5" onSubmit={handleSubmit}>
+            <form className="mt-7 space-y-5" onSubmit={handleSubmit} autoComplete="off">
               <label htmlFor="reset-email" className="block text-sm font-medium text-slate-700">Email Address</label>
-              <input id="reset-email" name="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" className="-mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-100" />
+              <input id="reset-email" name="email" type="email" autoComplete="off" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" className="-mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-100" />
               {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
               <button type="submit" disabled={loading} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-sky-600 px-5 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70">{loading ? "Sending..." : <>Send Reset Link <Send size={16} /></>}</button>
             </form>

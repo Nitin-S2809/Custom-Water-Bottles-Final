@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { decodeJwtPayload, isTokenExpired } from "../utils/adminAuth";
 
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 
@@ -48,6 +49,11 @@ export default function AdminLoginPage() {
         throw new Error(data.message || "Invalid email or password.");
       }
 
+      const tokenPayload = decodeJwtPayload(data.token);
+      if (tokenPayload?.role !== "admin" || isTokenExpired(data.token)) {
+        throw new Error("Admin login returned an invalid session. Please try again.");
+      }
+
       login({ user: data.user, token: data.token });
       navigate("/admin", { replace: true });
     } catch (err) {
@@ -66,7 +72,7 @@ export default function AdminLoginPage() {
           <p className="mt-2 text-sm text-slate-600">Sign in to manage AquaBrand operations</p>
         </div>
 
-        <form className="mt-8 space-y-5" onSubmit={handleSubmit} noValidate>
+        <form className="mt-8 space-y-5" onSubmit={handleSubmit} noValidate autoComplete="off">
           <div>
             <label htmlFor="admin-email" className="mb-2 block text-sm font-medium text-slate-700">Email</label>
             <input

@@ -47,7 +47,7 @@ const LoginPage = () => {
             <p className="text-sm text-slate-900">Login to your AquaBrand account</p>
           </div>
 
-          <form className="mt-10 space-y-5" onSubmit={handleSubmit}>
+          <form className="mt-10 space-y-5" onSubmit={handleSubmit} autoComplete="off">
             <div>
               <div className="flex items-center justify-between text-sm font-medium text-slate-700">
                 <label htmlFor="email">Email Address</label>
@@ -64,7 +64,7 @@ const LoginPage = () => {
                   id="email"
                   name="email"
                   type="email"
-                  autoComplete="email"
+                  autoComplete="username"
                   value={formData.email}
                   onChange={handleChange}
                   placeholder="Enter your email"

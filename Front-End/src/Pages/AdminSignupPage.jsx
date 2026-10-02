@@ -95,14 +95,14 @@ export default function AdminSignupPage() {
           <h1 className="mt-5 text-3xl font-bold tracking-tight text-slate-900">Create Admin Account</h1>
         </div>
 
-        <form className="mt-8 space-y-5" onSubmit={handleSubmit} noValidate>
+        <form className="mt-8 space-y-5" onSubmit={handleSubmit} noValidate autoComplete="off">
           <div>
             <label htmlFor="name" className="mb-2 block text-sm font-medium text-slate-700">Name</label>
             <input
               id="name"
               name="name"
               type="text"
-              autoComplete="name"
+              autoComplete="off"
               value={formData.name}
               onChange={handleChange}
               placeholder="Enter full name"
@@ -117,7 +117,7 @@ export default function AdminSignupPage() {
               id="email"
               name="email"
               type="email"
-              autoComplete="email"
+              autoComplete="off"
               value={formData.email}
               onChange={handleChange}
               placeholder="admin@aquabrand.com"

@@ -46,7 +46,7 @@ function ResetPasswordPage() {
           </div> : <>
             <h1 className="mt-6 text-3xl font-bold tracking-tight text-slate-900">Choose a new password</h1>
             <p className="mt-3 text-sm leading-6 text-slate-600">Use at least 6 characters for your new password.</p>
-            <form className="mt-7 space-y-5" onSubmit={handleSubmit}>
+            <form className="mt-7 space-y-5" onSubmit={handleSubmit} autoComplete="off">
               <label htmlFor="new-password" className="block text-sm font-medium text-slate-700">New Password</label>
               <div className="relative -mt-2">
                 <input id="new-password" name="password" type={showPassword ? "text" : "password"} autoComplete="new-password" minLength={6} required value={password} onChange={(event) => setPassword(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pr-12 text-sm text-slate-900 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-100" />

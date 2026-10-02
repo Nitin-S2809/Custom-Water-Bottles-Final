@@ -117,13 +117,14 @@ const SupplierSignup = () => {
               </p>
             </div>
 
-            <form className="space-y-6" onSubmit={handleSubmit}>
+            <form className="space-y-6" onSubmit={handleSubmit} autoComplete="off">
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="block text-sm font-medium text-slate-700">
                   Company Name
                   <input
                     type="text"
                     name="companyName"
+                    autoComplete="off"
                     value={formData.companyName}
                     onChange={handleChange}
                     placeholder="Company Name"
@@ -135,6 +136,7 @@ const SupplierSignup = () => {
                   <input
                     type="text"
                     name="ownerName"
+                    autoComplete="off"
                     value={formData.ownerName}
                     onChange={handleChange}
                     placeholder="Owner Name"
@@ -150,7 +152,7 @@ const SupplierSignup = () => {
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="block text-sm font-medium text-slate-700">Account Holder / Account Owner Name
-                    <input type="text" name="accountHolderName" autoComplete="name" value={formData.accountHolderName || ""} onChange={handleChange} required minLength={2} maxLength={100} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" aria-invalid={Boolean(validationErrors.accountHolderName)} aria-describedby="account-holder-error" />
+                    <input type="text" name="accountHolderName" autoComplete="off" value={formData.accountHolderName || ""} onChange={handleChange} required minLength={2} maxLength={100} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" aria-invalid={Boolean(validationErrors.accountHolderName)} aria-describedby="account-holder-error" />
                     {validationErrors.accountHolderName ? <span id="account-holder-error" className="mt-1 block text-xs text-red-600">{validationErrors.accountHolderName}</span> : null}
                   </label>
                   <label className="block text-sm font-medium text-slate-700">Bank Account Number
@@ -187,6 +189,7 @@ const SupplierSignup = () => {
                   <input
                     type="email"
                     name="businessEmail"
+                    autoComplete="off"
                     value={formData.businessEmail}
                     onChange={handleChange}
                     placeholder="Business Email"
@@ -198,6 +201,7 @@ const SupplierSignup = () => {
                   <input
                     type="tel"
                     name="phoneNumber"
+                    autoComplete="off"
                     value={formData.phoneNumber}
                     onChange={handleChange}
                     placeholder="Phone Number"
@@ -212,6 +216,7 @@ const SupplierSignup = () => {
                   <input
                     type="text"
                     name="city"
+                    autoComplete="off"
                     value={formData.city}
                     onChange={handleChange}
                     placeholder="City"
@@ -222,6 +227,7 @@ const SupplierSignup = () => {
                   State
                   <select
                     name="state"
+                    autoComplete="off"
                     value={formData.state}
                     onChange={handleChange}
                     className="mt-3 w-full appearance-none rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
@@ -263,6 +269,7 @@ const SupplierSignup = () => {
                   <input
                     type="text"
                     name="productionCapacity"
+                    autoComplete="off"
                     value={formData.productionCapacity}
                     onChange={handleChange}
                     placeholder="Production Capacity"
@@ -274,6 +281,7 @@ const SupplierSignup = () => {
                   <input
                     type="text"
                     name="gstNumber"
+                    autoComplete="off"
                     value={formData.gstNumber}
                     onChange={handleChange}
                     placeholder="GST Number"
@@ -289,6 +297,7 @@ const SupplierSignup = () => {
                     <input
                       type="password"
                       name="password"
+                      autoComplete="new-password"
                       value={formData.password}
                       onChange={handleChange}
                       placeholder="Password"
@@ -305,6 +314,7 @@ const SupplierSignup = () => {
                     <input
                       type="password"
                       name="confirmPassword"
+                      autoComplete="new-password"
                       value={formData.confirmPassword}
                       onChange={handleChange}
                       placeholder="Confirm Password"
