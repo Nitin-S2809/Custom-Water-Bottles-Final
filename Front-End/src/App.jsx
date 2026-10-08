@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import Navbar from "./components/Navbar";
 import Hero from "./components/Hero";
@@ -96,6 +96,15 @@ const hasInvalidAdminToken = (token) => {
 
 function Home() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+
+  useEffect(() => {
+    if (isAuthenticated) return undefined;
+
+    const redirectTimeout = window.setTimeout(() => navigate("/login"), 2000);
+    return () => window.clearTimeout(redirectTimeout);
+  }, [isAuthenticated, navigate]);
 
   return (
     <>
