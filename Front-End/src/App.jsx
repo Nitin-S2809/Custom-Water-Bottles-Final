@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import Navbar from "./components/Navbar";
 import Hero from "./components/Hero";
@@ -96,15 +96,6 @@ const hasInvalidAdminToken = (token) => {
 
 function Home() {
   const location = useLocation();
-  const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
-
-  useEffect(() => {
-    if (isAuthenticated) return undefined;
-
-    const redirectTimeout = window.setTimeout(() => navigate("/login"), 2000);
-    return () => window.clearTimeout(redirectTimeout);
-  }, [isAuthenticated, navigate]);
 
   return (
     <>
@@ -213,10 +204,31 @@ function ProtectedAdminRoute({ children }) {
   return children;
 }
 
+function RequireAuth({ children, loginMessage, redirectTo = "/login" }) {
+  const { isAuthenticated } = useAuth();
+  const location = useLocation();
+
+  if (!isAuthenticated) {
+    return <Navigate to={redirectTo} replace state={{ message: loginMessage || "Please log in to continue.", from: location.pathname + location.search }} />;
+  }
+
+  return children;
+}
+
 function App() {
   const location = useLocation();
   const isSupplierRoute = location.pathname.startsWith("/supplier") && location.pathname !== "/suppliers";
   const isAdminRoute = location.pathname.startsWith("/admin");
+
+  const requireAuth = (element, options = {}) => {
+    const { loginMessage, redirectTo = "/login" } = options;
+
+    return (
+      <RequireAuth loginMessage={loginMessage} redirectTo={redirectTo}>
+        {element}
+      </RequireAuth>
+    );
+  };
 
   return (
     <>
@@ -233,10 +245,10 @@ function App() {
         <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
         <Route path="/supplier-signup" element={<SupplierSignup />} />
         <Route path="/supplier-signin" element={<SupplierSignin />} />
-        <Route path="/order-bottles" element={<OrderBottle />} />
-        <Route path="/delivery-details" element={<DeliveryDetail />} />
-        <Route path="/payment" element={<PaymentPage />} />
-        <Route path="/order-successful" element={<OrderSuccessfull />} />
+        <Route path="/order-bottles" element={requireAuth(<OrderBottle />, { loginMessage: "Please log in to continue with your bottle order." })} />
+        <Route path="/delivery-details" element={requireAuth(<DeliveryDetail />, { loginMessage: "Please log in to continue to checkout." })} />
+        <Route path="/payment" element={requireAuth(<PaymentPage />, { loginMessage: "Please log in to complete your payment." })} />
+        <Route path="/order-successful" element={requireAuth(<OrderSuccessfull />, { loginMessage: "Please log in to view your order details." })} />
 
         <Route path="/supplierlandingpage" element={<SupplierLandingPage />} />
         <Route path="/supplier-orders/:orderId" element={<SupplierOrderDetails />} />

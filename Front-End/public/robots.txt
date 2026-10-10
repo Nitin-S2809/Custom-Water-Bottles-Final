@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+
+# Public marketing pages and assets are intended to be crawlable.
+# Authentication protects private customer, supplier, and admin pages.
+
+Sitemap: https://custom-water-bottles-final-8w8c.vercel.app/sitemap.xml

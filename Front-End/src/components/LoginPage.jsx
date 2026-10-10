@@ -30,7 +30,10 @@ const LoginPage = () => {
       });
 
       login({ user: data.user, token: data.token });
-      navigate("/");
+
+      const returnPath = typeof location.state?.from === "string" ? location.state.from : "/";
+      const safePath = returnPath.startsWith("/") && !returnPath.startsWith("//") ? returnPath : "/";
+      navigate(safePath, { replace: true });
     } catch (err) {
       setError(err.message || "Unable to log in. Please try again.");
     } finally {

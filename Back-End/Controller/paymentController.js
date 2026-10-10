@@ -33,12 +33,20 @@ const createPaymentOrder = async (req, res) => {
       printing,
       paymentMethod,
       logoUrl,
+      totalAmount,
     } = req.body;
 
     if (!userId || !bottleType || !quantity) {
       return res.status(400).json({
         success: false,
         message: "User ID, bottle type and quantity are required",
+      });
+    }
+
+    if (!req.user || !req.user.id || req.user.id !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only create a payment for your own order.",
       });
     }
 
@@ -49,6 +57,15 @@ const createPaymentOrder = async (req, res) => {
     const pricingResult = calculatePrice({ bottleType, quantity: Number(quantity) });
     if (!pricingResult.success) {
       return res.status(400).json({ success: false, message: pricingResult.message });
+    }
+
+    const expectedTotal = Number(pricingResult.pricing.total);
+    const submittedTotal = Number(totalAmount);
+    if (!Number.isFinite(submittedTotal) || Math.round(submittedTotal) !== Math.round(expectedTotal)) {
+      return res.status(400).json({
+        success: false,
+        message: "Order total does not match the server-approved amount.",
+      });
     }
 
     const { pricing } = pricingResult;
@@ -76,7 +93,7 @@ const createPaymentOrder = async (req, res) => {
       amount: Math.round(pricing.total * 100),
       currency: "INR",
       receipt: `order_${localOrder._id}`,
-      notes: { localOrderId: String(localOrder._id) },
+      notes: { localOrderId: String(localOrder._id), userId: String(userId) },
     });
 
     const updatedOrder = await orderService.updateOrder(localOrder._id, {
@@ -127,6 +144,13 @@ const verifyPayment = async (req, res) => {
     const order = await orderService.getOrderByRazorpayId(razorpayOrderId);
     if (!order) {
       return res.status(404).json({ success: false, message: "Payment order not found" });
+    }
+
+    if (!req.user || !req.user.id || String(order.userId) !== String(req.user.id)) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only verify your own payment.",
+      });
     }
 
     const expectedSignature = crypto

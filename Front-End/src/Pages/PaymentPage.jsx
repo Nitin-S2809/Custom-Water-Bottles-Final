@@ -320,6 +320,8 @@ export default function PaymentPage() {
       formData.append("country", finalOrder.deliveryAddress.country || "India");
       formData.append("totalAmount", String(pricing.total ?? ""));
 
+      const authorizationHeader = token ? { Authorization: `Bearer ${token}` } : {};
+
       const apiUrl = `${import.meta.env.VITE_API_URL}/api/orders/payment/create-order`;
       if (logoFile instanceof File) {
         formData.append("logo", logoFile, logoFile.name);
@@ -330,6 +332,7 @@ export default function PaymentPage() {
       const response = await fetch(apiUrl, {
         method: "POST",
         body: formData,
+        headers: authorizationHeader,
       });
 
       const result = await response.json();
@@ -360,7 +363,10 @@ export default function PaymentPage() {
             try {
               const verificationResponse = await fetch(`${import.meta.env.VITE_API_URL}/api/orders/payment/verify`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
                 body: JSON.stringify(paymentResponse),
               });
               const verificationResult = await verificationResponse.json();

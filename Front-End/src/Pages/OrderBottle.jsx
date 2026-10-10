@@ -498,6 +498,17 @@ export default function OrderBottle() {
                     };
                     saveDraft(orderData);
 
+                    if (!user?._id || !token) {
+                      navigate("/login", {
+                        replace: true,
+                        state: {
+                          message: "Please log in to continue with your bottle order.",
+                          from: "/order-bottles",
+                        },
+                      });
+                      return;
+                    }
+
                     if (savedAddress) {
                       const orderWithAddress = {
                         ...orderData,
