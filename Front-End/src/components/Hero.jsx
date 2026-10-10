@@ -39,7 +39,7 @@ const Hero = () => {
           
         <img
           src="/image.png"
-          alt="Office"
+          alt="Water bottle with a custom brand name and logo"
           className="w-full h-[470px] object-cover"
         />
           
