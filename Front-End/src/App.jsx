@@ -38,6 +38,40 @@ import AboutUs from "./Pages/aboutUs";
 import ForgotPasswordPage from "./components/ForgotPasswordPage";
 import ResetPasswordPage from "./components/ResetPasswordPage";
 
+const PUBLIC_ROUTE_METADATA = {
+  "/": {
+    title: "AquaBrand | Customized Water Bottles for Businesses",
+    description: "AquaBrand creates premium customized water bottles for businesses, hotels, restaurants, events, and bulk buyers across India.",
+  },
+  "/how-it-works": {
+    title: "How It Works | AquaBrand",
+    description: "See how AquaBrand helps businesses upload a logo, connect with a licensed local water plant, and get custom branded bottles delivered.",
+  },
+  "/suppliers": {
+    title: "For Water Suppliers | AquaBrand",
+    description: "Join AquaBrand's network of licensed water suppliers and connect with businesses looking for custom branded water bottles.",
+  },
+  "/about": {
+    title: "About AquaBrand | Customized Water Bottles for Businesses",
+    description: "Learn about AquaBrand, the platform connecting businesses with trusted and licensed local water suppliers for custom-branded bottles.",
+  },
+  "/contact": {
+    title: "Contact AquaBrand | Customized Water Bottles",
+    description: "Contact AquaBrand about custom branded bottled water for hotels, companies, events, and growing businesses.",
+  },
+};
+
+const CANONICAL_BASE_URL = "https://custom-water-bottles-final-8w8c.vercel.app";
+
+const restoreAttribute = (element, attribute, value) => {
+  if (!element) return;
+  if (value === null) {
+    element.removeAttribute(attribute);
+  } else {
+    element.setAttribute(attribute, value);
+  }
+};
+
 const decodeJwtRole = (token) => {
   const payload = decodeJwtPayload(token);
   return payload?.role || null;
@@ -219,6 +253,57 @@ function App() {
   const location = useLocation();
   const isSupplierRoute = location.pathname.startsWith("/supplier") && location.pathname !== "/suppliers";
   const isAdminRoute = location.pathname.startsWith("/admin");
+
+  useEffect(() => {
+    const metadata = PUBLIC_ROUTE_METADATA[location.pathname];
+    if (!metadata) return undefined;
+
+    const createdElements = [];
+    const getOrCreateElement = (selector, tagName, identifyingAttribute, identifyingValue) => {
+      const existingElement = document.querySelector(selector);
+      if (existingElement) return existingElement;
+
+      const element = document.createElement(tagName);
+      element.setAttribute(identifyingAttribute, identifyingValue);
+      document.head.appendChild(element);
+      createdElements.push(element);
+      return element;
+    };
+    const description = getOrCreateElement('meta[name="description"]', "meta", "name", "description");
+    const canonical = getOrCreateElement('link[rel="canonical"]', "link", "rel", "canonical");
+    const openGraphTitle = getOrCreateElement('meta[property="og:title"]', "meta", "property", "og:title");
+    const openGraphDescription = getOrCreateElement('meta[property="og:description"]', "meta", "property", "og:description");
+    const twitterTitle = getOrCreateElement('meta[name="twitter:title"]', "meta", "name", "twitter:title");
+    const twitterDescription = getOrCreateElement('meta[name="twitter:description"]', "meta", "name", "twitter:description");
+    const previousValues = {
+      title: document.title,
+      description: description.getAttribute("content"),
+      canonical: canonical.getAttribute("href"),
+      openGraphTitle: openGraphTitle.getAttribute("content"),
+      openGraphDescription: openGraphDescription.getAttribute("content"),
+      twitterTitle: twitterTitle.getAttribute("content"),
+      twitterDescription: twitterDescription.getAttribute("content"),
+    };
+
+    document.title = metadata.title;
+    description.setAttribute("content", metadata.description);
+    canonical.setAttribute("href", `${CANONICAL_BASE_URL}${location.pathname}`);
+    openGraphTitle.setAttribute("content", metadata.title);
+    openGraphDescription.setAttribute("content", metadata.description);
+    twitterTitle.setAttribute("content", metadata.title);
+    twitterDescription.setAttribute("content", metadata.description);
+
+    return () => {
+      document.title = previousValues.title;
+      restoreAttribute(description, "content", previousValues.description);
+      restoreAttribute(canonical, "href", previousValues.canonical);
+      restoreAttribute(openGraphTitle, "content", previousValues.openGraphTitle);
+      restoreAttribute(openGraphDescription, "content", previousValues.openGraphDescription);
+      restoreAttribute(twitterTitle, "content", previousValues.twitterTitle);
+      restoreAttribute(twitterDescription, "content", previousValues.twitterDescription);
+      createdElements.forEach((element) => element.remove());
+    };
+  }, [location.pathname]);
 
   const requireAuth = (element, options = {}) => {
     const { loginMessage, redirectTo = "/login" } = options;
