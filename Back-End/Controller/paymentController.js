@@ -21,6 +21,56 @@ const getRazorpayClient = () => {
   return razorpay;
 };
 
+const redactDiagnosticText = (value) => {
+  let text;
+  try {
+    text = typeof value === "string" ? value : String(value);
+  } catch {
+    return "[unavailable]";
+  }
+
+  const secretEnvironmentVariables = [
+    "RAZORPAY_KEY_SECRET",
+    "RAZORPAY_WEBHOOK_SECRET",
+    "JWT_SECRET",
+    "SMTP_PASS",
+  ];
+
+  for (const name of secretEnvironmentVariables) {
+    const secret = process.env[name];
+    if (secret) text = text.split(secret).join("[REDACTED]");
+  }
+
+  return text
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
+    .replace(/\brzp_(?:test|live)_[A-Za-z0-9]+\b/gi, "[REDACTED_RAZORPAY_KEY]")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[REDACTED_EMAIL]")
+    .replace(/\b(?:\+?\d[\d\s().-]{7,}\d)\b/g, "[REDACTED_PHONE]")
+    .replace(/\b(?:\d[ -]*?){13,19}\b/g, "[REDACTED_CARD]");
+};
+
+const readDiagnosticProperty = (value, property) => {
+  try {
+    return value == null ? undefined : value[property];
+  } catch {
+    return undefined;
+  }
+};
+
+const safeErrorDetail = (value) => {
+  if (value == null) return null;
+  if (typeof value !== "object") return redactDiagnosticText(value);
+
+  const detail = {};
+  for (const property of ["code", "description", "source", "step", "reason"]) {
+    const field = readDiagnosticProperty(value, property);
+    if (typeof field === "string" || typeof field === "number" || typeof field === "boolean") {
+      detail[property] = redactDiagnosticText(field);
+    }
+  }
+  return Object.keys(detail).length > 0 ? detail : "[object]";
+};
+
 const createPaymentOrder = async (req, res) => {
   if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
     console.error("Create payment order error: Razorpay server credentials are not configured");
@@ -197,21 +247,42 @@ const createPaymentOrder = async (req, res) => {
       },
     });
   } catch (error) {
-    const gatewayStatus = Number(error?.statusCode || error?.response?.status);
-    const gatewayMessage =
-      error?.error?.description ||
-      error?.response?.data?.error?.description ||
-      error?.message;
-    console.error(
-      "Create payment order error:",
-      gatewayStatus || "internal",
-      gatewayMessage || "Unknown error"
+    const responseStatus = readDiagnosticProperty(
+      readDiagnosticProperty(error, "response"),
+      "status"
     );
+    const rawStatus = readDiagnosticProperty(error, "statusCode") || responseStatus;
+    const parsedStatus =
+      typeof rawStatus === "number" || typeof rawStatus === "string"
+        ? Number(rawStatus)
+        : NaN;
+    const gatewayStatus =
+      Number.isInteger(parsedStatus) && parsedStatus >= 400 && parsedStatus <= 599
+        ? parsedStatus
+        : null;
+    const rawMessage = readDiagnosticProperty(error, "message");
+    const rawDescription = readDiagnosticProperty(error, "description");
+    const rawCode = readDiagnosticProperty(error, "code");
+    const rawStack = readDiagnosticProperty(error, "stack");
 
-    const statusCode = gatewayStatus === 401 ? 401 : gatewayStatus ? 502 : 500;
+    const diagnostic = {
+      message: rawMessage == null ? null : redactDiagnosticText(rawMessage),
+      statusCode: gatewayStatus,
+      error: safeErrorDetail(readDiagnosticProperty(error, "error")),
+      description: rawDescription == null ? null : redactDiagnosticText(rawDescription),
+      code: rawCode == null ? null : redactDiagnosticText(rawCode),
+      stack: typeof rawStack === "string" ? redactDiagnosticText(rawStack) : null,
+    };
+    console.error("Create payment order error:", JSON.stringify(diagnostic));
+
+    const statusCode = gatewayStatus
+      ? gatewayStatus >= 500 ? 502 : gatewayStatus
+      : 500;
     const message = gatewayStatus === 401
-      ? "Razorpay rejected the backend credentials. Check the key ID and secret configured for this deployment."
-      : gatewayMessage || "Unable to start payment. Please try again.";
+      ? "Payment provider authentication failed. Please try again later."
+      : gatewayStatus && gatewayStatus < 500
+        ? "Payment provider rejected the order request. Please check the order details and try again."
+        : "Unable to start payment. Please try again.";
 
     return res.status(statusCode).json({
       success: false,
