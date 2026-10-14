@@ -16,7 +16,6 @@ const orderSchema = new mongoose.Schema(
 
     bottleType: {
       type: String,
-      enum: ["250ml", "500ml", "1000ml", "2000ml"],
       required: true,
     },
 
@@ -25,6 +24,30 @@ const orderSchema = new mongoose.Schema(
       required: true,
       min: 1,
     },
+
+    items: [
+      {
+        bottleType: {
+          type: String,
+          required: true,
+        },
+        quantity: {
+          type: Number,
+          required: true,
+          min: 1,
+        },
+        unitPrice: {
+          type: Number,
+          required: true,
+          min: 0,
+        },
+        subtotal: {
+          type: Number,
+          required: true,
+          min: 0,
+        },
+      },
+    ],
 
     brandName: {
       type: String,

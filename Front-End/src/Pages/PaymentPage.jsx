@@ -303,9 +303,13 @@ export default function PaymentPage() {
     try {
       const logoFile = order.logoFile ?? (order.logo instanceof File ? order.logo : dataUrlToFile(order.logoDataUrl || order.logo, order.logoFileName));
       const formData = new FormData();
+      const cartItems = Array.isArray(order.items) && order.items.length > 0 ? order.items : [];
+      const totalOrderQuantity = Number(order.totalQuantity ?? order.quantity ?? cartItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0) ?? 0);
+      const totalOrderAmount = Number(order.pricing?.total ?? pricing?.total ?? cartItems.reduce((sum, item) => sum + Number(item.itemTotal || item.subtotal || 0), 0) ?? 0);
+
       formData.append("userId", user?._id || "");
-      formData.append("bottleType", finalOrder.bottleType || "");
-      formData.append("quantity", String(quantity || ""));
+      formData.append("bottleType", finalOrder.bottleType || (cartItems.length > 0 ? "Mixed Bottles" : ""));
+      formData.append("quantity", String(totalOrderQuantity || quantity || ""));
       formData.append("specialInstructions", finalOrder.specialInstructions || "");
       formData.append("brandName", finalOrder.brandName || "");
       formData.append("printing", finalOrder.printing || "");
@@ -318,7 +322,20 @@ export default function PaymentPage() {
       formData.append("state", finalOrder.deliveryAddress.state || "");
       formData.append("pincode", finalOrder.deliveryAddress.pincode || "");
       formData.append("country", finalOrder.deliveryAddress.country || "India");
-      formData.append("totalAmount", String(pricing.total ?? ""));
+      formData.append("totalAmount", String(totalOrderAmount || pricing.total || ""));
+      if (cartItems.length > 0) {
+        formData.append(
+          "items",
+          JSON.stringify(
+            cartItems.map((item) => ({
+              bottleType: item.bottleType,
+              quantity: Number(item.quantity || 0),
+              unitPrice: Number(item.unitPrice ?? item.pricing?.unitPrice ?? 0),
+              subtotal: Number(item.itemTotal ?? item.subtotal ?? item.pricing?.subtotal ?? 0),
+            }))
+          )
+        );
+      }
 
       const authorizationHeader = token ? { Authorization: `Bearer ${token}` } : {};
 

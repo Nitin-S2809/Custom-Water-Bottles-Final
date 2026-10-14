@@ -24,6 +24,10 @@ const getRazorpayClient = () => {
 const createPaymentOrder = async (req, res) => {
   try {
     const razorpayClient = getRazorpayClient();
+    const rawItems = req.body?.items;
+    const parsedItems = typeof rawItems === "string" ? JSON.parse(rawItems) : rawItems;
+    const itemList = Array.isArray(parsedItems) ? parsedItems : [];
+
     const {
       userId,
       bottleType,
@@ -36,10 +40,10 @@ const createPaymentOrder = async (req, res) => {
       totalAmount,
     } = req.body;
 
-    if (!userId || !bottleType || !quantity) {
+    if (!userId) {
       return res.status(400).json({
         success: false,
-        message: "User ID, bottle type and quantity are required",
+        message: "User ID is required",
       });
     }
 
@@ -50,47 +54,113 @@ const createPaymentOrder = async (req, res) => {
       });
     }
 
-    if (!isValidBottleType(bottleType)) {
-      return res.status(400).json({ success: false, message: "Invalid bottle type" });
-    }
+    let orderPayload;
+    let expectedTotal;
 
-    const pricingResult = calculatePrice({ bottleType, quantity: Number(quantity) });
-    if (!pricingResult.success) {
-      return res.status(400).json({ success: false, message: pricingResult.message });
-    }
+    if (itemList.length > 0) {
+      const validatedItems = itemList.map((item) => {
+        const bottleItemType = item?.bottleType;
+        if (!bottleItemType || !isValidBottleType(bottleItemType)) {
+          throw new Error("One or more cart items have an invalid bottle type.");
+        }
 
-    const expectedTotal = Number(pricingResult.pricing.total);
-    const submittedTotal = Number(totalAmount);
-    if (!Number.isFinite(submittedTotal) || Math.round(submittedTotal) !== Math.round(expectedTotal)) {
-      return res.status(400).json({
-        success: false,
-        message: "Order total does not match the server-approved amount.",
+        const itemQuantity = Number(item?.quantity ?? 0);
+        if (!Number.isFinite(itemQuantity) || itemQuantity <= 0) {
+          throw new Error("Each cart item must have a valid quantity.");
+        }
+
+        const itemUnitPrice = Number(item?.unitPrice ?? 0);
+        const itemSubtotal = Number(item?.subtotal ?? itemUnitPrice * itemQuantity ?? 0);
+
+        return {
+          bottleType: bottleItemType,
+          quantity: itemQuantity,
+          unitPrice: itemUnitPrice,
+          subtotal: itemSubtotal,
+        };
       });
+
+      const totalQuantity = validatedItems.reduce((sum, item) => sum + item.quantity, 0);
+      const subtotal = validatedItems.reduce((sum, item) => sum + item.subtotal, 0);
+      const shipping = require("../config/pricingConfig").calculateShipping(totalQuantity);
+      expectedTotal = subtotal + shipping;
+      const submittedTotal = Number(totalAmount);
+      if (!Number.isFinite(submittedTotal) || Math.round(submittedTotal) !== Math.round(expectedTotal)) {
+        return res.status(400).json({
+          success: false,
+          message: "Order total does not match the server-approved amount.",
+        });
+      }
+
+      orderPayload = {
+        userId,
+        bottleType: validatedItems.length > 1 ? "Mixed Bottles" : validatedItems[0].bottleType,
+        quantity: totalQuantity,
+        logoUrl: req.file ? `/uploads/${req.file.filename}` : logoUrl || "",
+        brandName: brandName || "",
+        printing: printing || "Single Color Logo",
+        specialInstructions: specialInstructions || "",
+        items: validatedItems,
+        pricing: {
+          unitPrice: totalQuantity ? subtotal / totalQuantity : 0,
+          subtotal,
+          shipping,
+          total: expectedTotal,
+        },
+        paymentMethod: paymentMethod || "",
+        paymentStatus: "pending",
+        currency: "INR",
+      };
+    } else {
+      if (!userId || !bottleType || !quantity) {
+        return res.status(400).json({
+          success: false,
+          message: "User ID, bottle type and quantity are required",
+        });
+      }
+
+      if (!isValidBottleType(bottleType)) {
+        return res.status(400).json({ success: false, message: "Invalid bottle type" });
+      }
+
+      const pricingResult = calculatePrice({ bottleType, quantity: Number(quantity) });
+      if (!pricingResult.success) {
+        return res.status(400).json({ success: false, message: pricingResult.message });
+      }
+
+      expectedTotal = Number(pricingResult.pricing.total);
+      const submittedTotal = Number(totalAmount);
+      if (!Number.isFinite(submittedTotal) || Math.round(submittedTotal) !== Math.round(expectedTotal)) {
+        return res.status(400).json({
+          success: false,
+          message: "Order total does not match the server-approved amount.",
+        });
+      }
+
+      const { pricing } = pricingResult;
+      orderPayload = {
+        userId,
+        bottleType,
+        quantity: Number(quantity),
+        logoUrl: req.file ? `/uploads/${req.file.filename}` : logoUrl || "",
+        brandName: brandName || "",
+        printing: printing || "Single Color Logo",
+        specialInstructions: specialInstructions || "",
+        pricing: {
+          unitPrice: pricing.unitPrice,
+          subtotal: pricing.subtotal,
+          shipping: pricing.shipping,
+          total: pricing.total,
+        },
+        paymentMethod: paymentMethod || "",
+        paymentStatus: "pending",
+        currency: "INR",
+      };
     }
 
-    const { pricing } = pricingResult;
-    const safeLogoUrl = req.file ? `/uploads/${req.file.filename}` : (logoUrl || "");
-    const localOrder = await orderService.createOrder({
-      userId,
-      bottleType,
-      quantity: Number(quantity),
-      logoUrl: safeLogoUrl,
-      brandName: brandName || "",
-      printing: printing || "Single Color Logo",
-      specialInstructions: specialInstructions || "",
-      pricing: {
-        unitPrice: pricing.unitPrice,
-        subtotal: pricing.subtotal,
-        shipping: pricing.shipping,
-        total: pricing.total,
-      },
-      paymentMethod: paymentMethod || "",
-      paymentStatus: "pending",
-      currency: "INR",
-    });
-
+    const localOrder = await orderService.createOrder(orderPayload);
     const razorpayOrder = await razorpayClient.orders.create({
-      amount: Math.round(pricing.total * 100),
+      amount: Math.round(expectedTotal * 100),
       currency: "INR",
       receipt: `order_${localOrder._id}`,
       notes: { localOrderId: String(localOrder._id), userId: String(userId) },
@@ -114,7 +184,7 @@ const createPaymentOrder = async (req, res) => {
     console.error("Create payment order error:", error.message);
     return res.status(500).json({
       success: false,
-      message: "Unable to start payment. Please try again.",
+      message: error.message || "Unable to start payment. Please try again.",
     });
   }
 };

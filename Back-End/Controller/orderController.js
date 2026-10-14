@@ -37,6 +37,10 @@ const calculateOrderPrice = async (req, res) => {
 
 const createOrder = async (req, res) => {
   try {
+    const rawItems = req.body?.items;
+    const parsedItems = typeof rawItems === "string" ? JSON.parse(rawItems) : rawItems;
+    const itemList = Array.isArray(parsedItems) ? parsedItems : [];
+
     const {
       userId,
       bottleType,
@@ -54,7 +58,57 @@ const createOrder = async (req, res) => {
     }
 
     const { isValidBottleType } = require("../config/pricingConfig");
-    if (!isValidBottleType(bottleType)) {
+
+    if (itemList.length > 0) {
+      const validatedItems = itemList.map((item) => {
+        const bottleItemType = item?.bottleType;
+        if (!bottleItemType || !isValidBottleType(bottleItemType)) {
+          throw new Error("One or more cart items have an invalid bottle type.");
+        }
+
+        const itemQuantity = Number(item?.quantity ?? 0);
+        if (!Number.isFinite(itemQuantity) || itemQuantity <= 0) {
+          throw new Error("Each cart item must have a valid quantity.");
+        }
+
+        const itemUnitPrice = Number(item?.unitPrice ?? 0);
+        const itemSubtotal = Number(item?.subtotal ?? itemUnitPrice * itemQuantity ?? 0);
+
+        return {
+          bottleType: bottleItemType,
+          quantity: itemQuantity,
+          unitPrice: itemUnitPrice,
+          subtotal: itemSubtotal,
+        };
+      });
+
+      const totalQuantity = validatedItems.reduce((sum, item) => sum + item.quantity, 0);
+      const subtotal = validatedItems.reduce((sum, item) => sum + item.subtotal, 0);
+      const shipping = require("../config/pricingConfig").calculateShipping(totalQuantity);
+      const total = subtotal + shipping;
+
+      const orderData = {
+        userId,
+        bottleType: validatedItems.length > 1 ? "Mixed Bottles" : validatedItems[0].bottleType,
+        quantity: totalQuantity,
+        brandName: brandName || "",
+        printing: printing || "Single Color Logo",
+        logoUrl: req.file ? `/uploads/${req.file.filename}` : "",
+        specialInstructions: specialInstructions || "",
+        items: validatedItems,
+        pricing: {
+          unitPrice: totalQuantity ? subtotal / totalQuantity : 0,
+          subtotal,
+          shipping,
+          total,
+        },
+      };
+
+      const order = await orderService.createOrder(orderData);
+      return res.status(201).json({ success: true, message: "Order created successfully", order });
+    }
+
+    if (!bottleType || !isValidBottleType(bottleType)) {
       return res.status(400).json({
         success: false,
         message: "Invalid bottle type. Must be one of: 250ml, 500ml, 1000ml, 2000ml",
@@ -110,7 +164,7 @@ const createOrder = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
