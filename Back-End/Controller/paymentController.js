@@ -22,6 +22,14 @@ const getRazorpayClient = () => {
 };
 
 const createPaymentOrder = async (req, res) => {
+  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+    console.error("Create payment order error: Razorpay server credentials are not configured");
+    return res.status(503).json({
+      success: false,
+      message: "Payments are not configured on the server. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in the backend deployment environment.",
+    });
+  }
+
   try {
     const razorpayClient = getRazorpayClient();
     const rawItems = req.body?.items;
@@ -158,9 +166,17 @@ const createPaymentOrder = async (req, res) => {
       };
     }
 
+    const amountPaise = Math.round(expectedTotal * 100);
+    if (!Number.isSafeInteger(amountPaise) || amountPaise < 100) {
+      return res.status(400).json({
+        success: false,
+        message: "The payment amount must be at least 100 paise.",
+      });
+    }
+
     const localOrder = await orderService.createOrder(orderPayload);
     const razorpayOrder = await razorpayClient.orders.create({
-      amount: Math.round(expectedTotal * 100),
+      amount: amountPaise,
       currency: "INR",
       receipt: `order_${localOrder._id}`,
       notes: { localOrderId: String(localOrder._id), userId: String(userId) },
@@ -181,10 +197,25 @@ const createPaymentOrder = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Create payment order error:", error.message);
-    return res.status(500).json({
+    const gatewayStatus = Number(error?.statusCode || error?.response?.status);
+    const gatewayMessage =
+      error?.error?.description ||
+      error?.response?.data?.error?.description ||
+      error?.message;
+    console.error(
+      "Create payment order error:",
+      gatewayStatus || "internal",
+      gatewayMessage || "Unknown error"
+    );
+
+    const statusCode = gatewayStatus === 401 ? 401 : gatewayStatus ? 502 : 500;
+    const message = gatewayStatus === 401
+      ? "Razorpay rejected the backend credentials. Check the key ID and secret configured for this deployment."
+      : gatewayMessage || "Unable to start payment. Please try again.";
+
+    return res.status(statusCode).json({
       success: false,
-      message: error.message || "Unable to start payment. Please try again.",
+      message,
     });
   }
 };
@@ -204,7 +235,14 @@ const verifyPayment = async (req, res) => {
       razorpay_signature: razorpaySignature,
     } = req.body;
 
-    if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+    if (
+      typeof razorpayOrderId !== "string" ||
+      !razorpayOrderId ||
+      typeof razorpayPaymentId !== "string" ||
+      !razorpayPaymentId ||
+      typeof razorpaySignature !== "string" ||
+      !razorpaySignature
+    ) {
       return res.status(400).json({
         success: false,
         message: "Payment verification details are required",
