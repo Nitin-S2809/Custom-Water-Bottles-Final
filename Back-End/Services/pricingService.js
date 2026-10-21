@@ -5,6 +5,7 @@
 
 const {
   getBottlePrice,
+  MIN_ORDER_QUANTITY,
   calculateShipping,
   isValidBottleType,
   getAvailableBottleTypes,
@@ -47,27 +48,24 @@ const validatePricingInput = (params) => {
   // Convert quantity to number if it's a string
   const numQuantity = Number(quantity);
 
-  // Validate quantity is a valid number
-  if (isNaN(numQuantity)) {
+  if (!Number.isFinite(numQuantity)) {
     return {
       valid: false,
       error: "Quantity must be a valid number",
     };
   }
 
-  // Validate quantity is an integer
-  if (!Number.isInteger(numQuantity)) {
+  if (!Number.isSafeInteger(numQuantity)) {
     return {
       valid: false,
-      error: "Quantity must be an integer",
+      error: "Quantity must be a valid whole number",
     };
   }
 
-  // Validate quantity is positive
-  if (numQuantity <= 0) {
+  if (numQuantity < MIN_ORDER_QUANTITY) {
     return {
       valid: false,
-      error: "Quantity must be a positive number",
+      error: `Minimum order is ${MIN_ORDER_QUANTITY} bottles.`,
     };
   }
 
@@ -79,16 +77,16 @@ const validatePricingInput = (params) => {
  * @param {object} params - {bottleType, quantity}
  * @returns {object} Pricing object or error
  * @example
- * calculatePrice({ bottleType: "500ml", quantity: 250 })
+ * calculatePrice({ bottleType: "500ml", quantity: 600 })
  * // Returns: {
  * //   success: true,
  * //   pricing: {
  * //     bottleType: "500ml",
- * //     quantity: 250,
- * //     unitPrice: 7,
- * //     subtotal: 1750,
- * //     shipping: 400,
- * //     total: 2150
+ * //     quantity: 600,
+ * //     unitPrice: 9,
+ * //     subtotal: 5400,
+ * //     shipping: 600,
+ * //     total: 6000
  * //   }
  * // }
  */
@@ -162,6 +160,10 @@ const calculateCartPrice = (items) => {
   let subtotal = 0;
 
   for (const item of items) {
+    if (!item || typeof item !== "object") {
+      return { success: false, message: "Each cart item must be an object" };
+    }
+
     const result = calculatePrice({
       bottleType: item.bottleType,
       quantity: Number(item.quantity),

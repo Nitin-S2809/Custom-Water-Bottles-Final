@@ -1,10 +1,11 @@
 import { ArrowRight, Minus, Plus, ShoppingCart, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
 
 const formatCurrency = (value) => {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "Unavailable";
   const safeValue = Number(value ?? 0);
 
   if (!Number.isFinite(safeValue)) {
@@ -23,23 +24,70 @@ const getShippingCost = (totalQuantity) => {
   return totalQuantity > 500 ? 600 : 400;
 };
 
+const MIN_ORDER_QUANTITY = 600;
+
 export default function CartPage() {
   const { items, removeItem, updateItemQuantity, clearCart } = useCart();
   const { user, token, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [orderError, setOrderError] = useState("");
+  const [serverUnitPrices, setServerUnitPrices] = useState({});
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [pricingError, setPricingError] = useState("");
+
+  useEffect(() => {
+    let isCurrent = true;
+    const bottleTypes = [...new Set(items.map((item) => item.bottleType || "Bottle"))];
+
+    if (bottleTypes.length === 0) {
+      setServerUnitPrices({});
+      setPricingError("");
+      setPricingLoading(false);
+      return () => {
+        isCurrent = false;
+      };
+    }
+
+    setServerUnitPrices({});
+    setPricingError("");
+    setPricingLoading(true);
+    Promise.all(
+      bottleTypes.map(async (bottleType) => {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/orders/calculate-price`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bottleType, quantity: MIN_ORDER_QUANTITY }),
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || "Unable to load current bottle pricing.");
+        }
+        return [bottleType, result.pricing.unitPrice];
+      })
+    )
+      .then((prices) => {
+        if (isCurrent) setServerUnitPrices(Object.fromEntries(prices));
+      })
+      .catch((error) => {
+        if (isCurrent) setPricingError(error.message || "Unable to load current bottle pricing.");
+      })
+      .finally(() => {
+        if (isCurrent) setPricingLoading(false);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [items]);
 
   const cartItems = useMemo(
     () =>
       items.map((item) => {
         const bottleType = item.bottleType || "Bottle";
         const quantity = Math.max(1, Number(item.quantity || 1));
-        const pricing = item.pricing || {};
-        const unitPrice = Number(pricing.unitPrice ?? item.unitPrice ?? item.price ?? 0);
-        const itemTotal = Number(
-          pricing.subtotal !== undefined && pricing.subtotal !== null ? pricing.subtotal : unitPrice * quantity
-        );
+        const unitPrice = Number(serverUnitPrices[bottleType]);
+        const itemTotal = Number.isFinite(unitPrice) ? unitPrice * quantity : null;
 
         return {
           ...item,
@@ -50,13 +98,18 @@ export default function CartPage() {
           displayName: `${bottleType} Bottle`,
         };
       }),
-    [items]
+    [items, serverUnitPrices]
   );
 
   const totalQuantity = cartItems.reduce((total, item) => total + Number(item.quantity || 0), 0);
-  const subtotal = cartItems.reduce((total, item) => total + Number(item.itemTotal || item.unitPrice * item.quantity || 0), 0);
+  const subtotal = cartItems.reduce((total, item) => total + (Number.isFinite(item.itemTotal) ? item.itemTotal : 0), 0);
   const shipping = totalQuantity > 0 ? getShippingCost(totalQuantity) : 0;
   const total = subtotal + shipping;
+  const hasValidQuantities = cartItems.every(
+    (item) => Number.isSafeInteger(item.quantity) && item.quantity >= MIN_ORDER_QUANTITY
+  );
+  const canCheckout = hasValidQuantities && !pricingLoading && !pricingError &&
+    cartItems.every((item) => Number.isFinite(item.unitPrice));
 
   const buildCartOrder = (savedAddress = null) => {
     const orderPayload = {
@@ -96,6 +149,16 @@ export default function CartPage() {
 
   const handlePlaceOrder = async () => {
     if (cartItems.length === 0) return;
+
+    if (!hasValidQuantities) {
+      setOrderError(`Minimum order is ${MIN_ORDER_QUANTITY} bottles for each bottle size.`);
+      return;
+    }
+
+    if (!canCheckout) {
+      setOrderError(pricingError || "Current bottle pricing is unavailable. Please try again.");
+      return;
+    }
 
     if (!isAuthenticated) {
       navigate("/login", {
@@ -211,7 +274,7 @@ export default function CartPage() {
 
                     <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 p-1">
-                        <button type="button" aria-label="Decrease quantity" disabled={item.quantity <= 1} onClick={() => updateItemQuantity(item.id, item.quantity - 1)} className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40">
+                        <button type="button" aria-label="Decrease quantity" disabled={item.quantity <= MIN_ORDER_QUANTITY} onClick={() => updateItemQuantity(item.id, item.quantity - 1)} className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40">
                           <Minus size={16} />
                         </button>
                         <span className="min-w-12 text-center text-sm font-semibold text-slate-900">{item.quantity}</span>
@@ -225,6 +288,11 @@ export default function CartPage() {
                         <p className="mt-1 text-xl font-semibold text-slate-900">{formatCurrency(item.itemTotal)}</p>
                       </div>
                     </div>
+                    {item.quantity < MIN_ORDER_QUANTITY ? (
+                      <p className="mt-3 text-sm text-red-600" role="alert">
+                        Minimum order is {MIN_ORDER_QUANTITY} bottles.
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -234,6 +302,13 @@ export default function CartPage() {
           <aside className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.16)] lg:sticky lg:top-24 lg:h-fit">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Order Summary</p>
             <div className="mt-5 space-y-4 text-sm text-slate-600">
+              {pricingLoading ? <p role="status">Loading current pricing...</p> : null}
+              {pricingError ? <p className="text-red-600" role="alert">{pricingError}</p> : null}
+              {!hasValidQuantities && cartItems.length > 0 ? (
+                <p className="text-red-600" role="alert">
+                  Minimum order is {MIN_ORDER_QUANTITY} bottles for each bottle size.
+                </p>
+              ) : null}
               <div className="flex items-center justify-between">
                 <span>Subtotal</span>
                 <span className="font-semibold text-slate-900">{formatCurrency(subtotal)}</span>
@@ -250,7 +325,7 @@ export default function CartPage() {
               </div>
             </div>
 
-            <button type="button" disabled={isPlacingOrder} onClick={handlePlaceOrder} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">
+            <button type="button" disabled={isPlacingOrder || !canCheckout} onClick={handlePlaceOrder} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">
               {isPlacingOrder ? "Checking address..." : "Proceed to Place Order"}
               <ArrowRight size={16} />
             </button>

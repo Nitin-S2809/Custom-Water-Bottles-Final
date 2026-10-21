@@ -1,5 +1,6 @@
 const orderService = require("../Services/orderService");
-const { calculatePrice } = require("../Services/pricingService");
+const { calculatePrice, calculateCartPrice } = require("../Services/pricingService");
+const { getAvailableBottleTypes } = require("../config/pricingConfig");
 
 const calculateOrderPrice = async (req, res) => {
   try {
@@ -57,35 +58,13 @@ const createOrder = async (req, res) => {
       });
     }
 
-    const { isValidBottleType } = require("../config/pricingConfig");
-
     if (itemList.length > 0) {
-      const validatedItems = itemList.map((item) => {
-        const bottleItemType = item?.bottleType;
-        if (!bottleItemType || !isValidBottleType(bottleItemType)) {
-          throw new Error("One or more cart items have an invalid bottle type.");
-        }
+      const cartResult = calculateCartPrice(itemList);
+      if (!cartResult.success) {
+        return res.status(400).json({ success: false, message: cartResult.message });
+      }
 
-        const itemQuantity = Number(item?.quantity ?? 0);
-        if (!Number.isFinite(itemQuantity) || itemQuantity <= 0) {
-          throw new Error("Each cart item must have a valid quantity.");
-        }
-
-        const itemUnitPrice = Number(item?.unitPrice ?? 0);
-        const itemSubtotal = Number(item?.subtotal ?? itemUnitPrice * itemQuantity ?? 0);
-
-        return {
-          bottleType: bottleItemType,
-          quantity: itemQuantity,
-          unitPrice: itemUnitPrice,
-          subtotal: itemSubtotal,
-        };
-      });
-
-      const totalQuantity = validatedItems.reduce((sum, item) => sum + item.quantity, 0);
-      const subtotal = validatedItems.reduce((sum, item) => sum + item.subtotal, 0);
-      const shipping = require("../config/pricingConfig").calculateShipping(totalQuantity);
-      const total = subtotal + shipping;
+      const { items: validatedItems, quantity: totalQuantity, subtotal, shipping, total } = cartResult.pricing;
 
       const orderData = {
         userId,
@@ -108,10 +87,10 @@ const createOrder = async (req, res) => {
       return res.status(201).json({ success: true, message: "Order created successfully", order });
     }
 
-    if (!bottleType || !isValidBottleType(bottleType)) {
+    if (!bottleType || !getAvailableBottleTypes().includes(bottleType)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid bottle type. Must be one of: 250ml, 500ml, 1000ml, 2000ml",
+        message: `Invalid bottle type. Must be one of: ${getAvailableBottleTypes().join(", ")}`,
       });
     }
 

@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { MIN_ORDER_QUANTITY } = require("../config/pricingConfig");
 
 const orderSchema = new mongoose.Schema(
   {
@@ -22,7 +23,7 @@ const orderSchema = new mongoose.Schema(
     quantity: {
       type: Number,
       required: true,
-      min: 1,
+      min: MIN_ORDER_QUANTITY,
     },
 
     items: [
@@ -34,7 +35,7 @@ const orderSchema = new mongoose.Schema(
         quantity: {
           type: Number,
           required: true,
-          min: 1,
+          min: MIN_ORDER_QUANTITY,
         },
         unitPrice: {
           type: Number,

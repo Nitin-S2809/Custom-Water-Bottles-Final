@@ -118,6 +118,8 @@ const defaultBillingForm = {
   country: "India",
 };
 
+const MIN_ORDER_QUANTITY = 600;
+
 function formatMoney(value) {
   if (value === null || value === undefined || value === "") return "Unavailable";
 
@@ -224,13 +226,69 @@ export default function PaymentPage() {
   });
   const [orderStatus, setOrderStatus] = useState({ type: "", text: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pricing, setPricing] = useState(order.pricing ?? {});
+  const [pricingLoading, setPricingLoading] = useState(true);
+  const [pricingError, setPricingError] = useState("");
 
   const bottleType = order.bottleType ?? "";
   const quantity = order.quantity ?? "";
   const printing = order.printing ?? "";
   const brandName = order.brandName || "YOUR BRAND";
   const instructions = order.specialInstructions || "";
-  const pricing = order.pricing ?? {};
+
+  useEffect(() => {
+    let isCurrent = true;
+    const items = Array.isArray(order.items) ? order.items : [];
+
+    const getPrice = async (itemBottleType, itemQuantity) => {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/orders/calculate-price`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bottleType: itemBottleType, quantity: itemQuantity }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Unable to calculate the current order total.");
+      }
+      return result.pricing;
+    };
+
+    const refreshPricing = async () => {
+      setPricing({});
+      setPricingError("");
+      setPricingLoading(true);
+      try {
+        if (items.length > 0) {
+          const itemPrices = await Promise.all(items.map((item) =>
+            getPrice(item.bottleType, Number(item.quantity))
+          ));
+          const totalQuantity = itemPrices.reduce((sum, item) => sum + item.quantity, 0);
+          const subtotal = itemPrices.reduce((sum, item) => sum + item.subtotal, 0);
+          const shipping = itemPrices[0].shipping;
+          if (isCurrent) {
+            setPricing({
+              unitPrice: totalQuantity ? subtotal / totalQuantity : 0,
+              subtotal,
+              shipping,
+              total: subtotal + shipping,
+            });
+          }
+        } else {
+          const currentPricing = await getPrice(bottleType, Number(quantity));
+          if (isCurrent) setPricing(currentPricing);
+        }
+      } catch (error) {
+        if (isCurrent) setPricingError(error.message || "Unable to calculate the current order total.");
+      } finally {
+        if (isCurrent) setPricingLoading(false);
+      }
+    };
+
+    refreshPricing();
+    return () => {
+      isCurrent = false;
+    };
+  }, [bottleType, order.items, quantity]);
 
   const billingDetails = sameAsDelivery
     ? {
@@ -275,6 +333,19 @@ export default function PaymentPage() {
       return;
     }
 
+    const cartItems = Array.isArray(order.items) ? order.items : [];
+    const hasValidQuantity = cartItems.length > 0
+      ? cartItems.every((item) => Number.isSafeInteger(Number(item.quantity)) && Number(item.quantity) >= MIN_ORDER_QUANTITY)
+      : Number.isSafeInteger(Number(quantity)) && Number(quantity) >= MIN_ORDER_QUANTITY;
+    if (!hasValidQuantity) {
+      setOrderStatus({ type: "error", text: `Minimum order is ${MIN_ORDER_QUANTITY} bottles for each bottle size.` });
+      return;
+    }
+    if (pricingLoading || pricingError || !Number.isFinite(Number(pricing.total))) {
+      setOrderStatus({ type: "error", text: pricingError || "Please wait for the current order price before checkout." });
+      return;
+    }
+
     setIsSubmitting(true);
     setOrderStatus({ type: "", text: "" });
 
@@ -305,7 +376,6 @@ export default function PaymentPage() {
       const formData = new FormData();
       const cartItems = Array.isArray(order.items) && order.items.length > 0 ? order.items : [];
       const totalOrderQuantity = Number(order.totalQuantity ?? order.quantity ?? cartItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0) ?? 0);
-      const totalOrderAmount = Number(order.pricing?.total ?? pricing?.total ?? cartItems.reduce((sum, item) => sum + Number(item.itemTotal || item.subtotal || 0), 0) ?? 0);
 
       formData.append("userId", user?._id || "");
       formData.append("bottleType", finalOrder.bottleType || (cartItems.length > 0 ? "Mixed Bottles" : ""));
@@ -322,7 +392,6 @@ export default function PaymentPage() {
       formData.append("state", finalOrder.deliveryAddress.state || "");
       formData.append("pincode", finalOrder.deliveryAddress.pincode || "");
       formData.append("country", finalOrder.deliveryAddress.country || "India");
-      formData.append("totalAmount", String(totalOrderAmount || pricing.total || ""));
       if (cartItems.length > 0) {
         formData.append(
           "items",
@@ -698,7 +767,7 @@ export default function PaymentPage() {
               <button
                 type="button"
                 onClick={handleSubmitOrder}
-                disabled={isSubmitting}
+                disabled={isSubmitting || pricingLoading || Boolean(pricingError) || !Number.isFinite(Number(pricing.total))}
                 className="flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-4 text-base font-semibold text-white shadow-[0_18px_35px_-18px_rgba(37,99,235,0.8)] transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-75"
               >
                 {isSubmitting ? "Processing..." : "Pay Securely & Place Order"}
@@ -710,6 +779,8 @@ export default function PaymentPage() {
                   {orderStatus.text}
                 </p>
               ) : null}
+              {pricingLoading ? <p className="text-center text-sm text-slate-500" role="status">Recalculating your order total...</p> : null}
+              {pricingError ? <p className="text-center text-sm text-red-600" role="alert">{pricingError}</p> : null}
 
               <div className="mt-4 flex items-center justify-center gap-2 text-sm text-slate-500">
                 <LockKeyhole size={14} className="text-slate-500" />

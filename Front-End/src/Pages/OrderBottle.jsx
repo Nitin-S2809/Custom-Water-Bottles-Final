@@ -14,6 +14,13 @@ import {
 
 const AnimatedDiv = motion.div;
 
+const MIN_ORDER_QUANTITY = 600;
+const bottleTypes = [
+  { id: "250ml", label: "250ml", subtitle: "Standard", image: "/250ml.png" },
+  { id: "500ml", label: "500ml", subtitle: "Premium", image: "/500ml.png" },
+  { id: "1000ml", label: "1000ml", subtitle: "Large", image: "/1000l.png" },
+];
+
 function readSavedDraft() {
   try {
     return JSON.parse(sessionStorage.getItem("aquaBrandDraftOrder") || "null") || {};
@@ -41,10 +48,13 @@ export default function OrderBottle() {
   const reduceMotion = useReducedMotion();
   const readerRef = useRef(null);
   const latestLogoRequestRef = useRef(0);
+  const latestPricingRequestRef = useRef(0);
   
   // Selection states - initialize as empty/null (no default selection)
   const [savedDraft] = useState(readSavedDraft);
-  const [selectedType, setSelectedType] = useState(savedDraft.bottleType || null);
+  const [selectedType, setSelectedType] = useState(
+    bottleTypes.some((item) => item.id === savedDraft.bottleType) ? savedDraft.bottleType : null
+  );
   const [selectedQuantity, setSelectedQuantity] = useState(savedDraft.quantity && !savedDraft.isCustomQuantity ? String(savedDraft.quantity) : null);
   const [customQuantity, setCustomQuantity] = useState(savedDraft.isCustomQuantity ? String(savedDraft.quantity) : "");
   const [instructions, setInstructions] = useState(savedDraft.specialInstructions || "");
@@ -53,6 +63,7 @@ export default function OrderBottle() {
   const [logoError, setLogoError] = useState("");
   const [logoProcessing, setLogoProcessing] = useState(false);
   const [brandName, setBrandName] = useState(savedDraft.brandName || "");
+  const [previewImageFailed, setPreviewImageFailed] = useState(false);
 
   // Pricing states
   const [pricing, setPricing] = useState(null);
@@ -61,18 +72,8 @@ export default function OrderBottle() {
   const [savedAddress, setSavedAddress] = useState(null);
   const [addressLookupLoading, setAddressLookupLoading] = useState(false);
 
-  // Bottle type definitions - CORRECTED to match backend prices
-  const bottleTypes = [
-    { id: "250ml", label: "250ml", subtitle: "Standard" },
-    { id: "500ml", label: "500ml", subtitle: "Premium" },
-    { id: "1000ml", label: "1000ml", subtitle: "Large" },
-    { id: "2000ml", label: "2000ml", subtitle: "Extra Large" },
-  ];
-
   const quantities = [
-    { id: "100", label: "100 Bottles" },
-    { id: "250", label: "250 Bottles" },
-    { id: "500", label: "500 Bottles" },
+    { id: "600", label: "600 Bottles" },
     { id: "1000", label: "1000 Bottles" },
     { id: "custom", label: "Custom Entry" },
   ];
@@ -92,6 +93,8 @@ export default function OrderBottle() {
 
   // Fetch pricing from backend whenever bottle type or quantity changes
   const fetchPricing = async (bottleType, quantity) => {
+    const requestId = ++latestPricingRequestRef.current;
+    setPricing(null);
     setPricingLoading(true);
     setPricingError(null);
 
@@ -109,26 +112,43 @@ export default function OrderBottle() {
 
       const data = await response.json();
 
+      if (requestId !== latestPricingRequestRef.current) return;
       if (data.success) {
         setPricing(data.pricing);
       } else {
+        setPricing(null);
         setPricingError(data.message);
       }
     } catch (error) {
+      if (requestId !== latestPricingRequestRef.current) return;
       console.error("Error fetching price:", error);
       setPricingError("Unable to calculate price. Please try again.");
     } finally {
-      setPricingLoading(false);
+      if (requestId === latestPricingRequestRef.current) setPricingLoading(false);
     }
   };
 
   // Recalculate only when the selected bottle or effective quantity changes.
   useEffect(() => {
-    if (!selectedType || !selectedQuantity) return;
+    if (!selectedType || !selectedQuantity) {
+      latestPricingRequestRef.current += 1;
+      setPricing(null);
+      setPricingLoading(false);
+      return;
+    }
     const quantity = selectedQuantity === "custom" ? customQuantity : selectedQuantity;
-    if (!quantity) return;
+    if (!quantity || !Number.isSafeInteger(Number(quantity)) || Number(quantity) < MIN_ORDER_QUANTITY) {
+      latestPricingRequestRef.current += 1;
+      setPricing(null);
+      setPricingError("");
+      setPricingLoading(false);
+      return;
+    }
     fetchPricing(selectedType, quantity);
   }, [customQuantity, selectedQuantity, selectedType]);
+
+  const previewImage = bottleTypes.find((item) => item.id === selectedType)?.image || "/preview.png";
+  useEffect(() => setPreviewImageFailed(false), [previewImage]);
 
   useEffect(() => {
     saveDraft({
@@ -283,6 +303,17 @@ export default function OrderBottle() {
 
   const normalizedBrandName = brandName.trim() || "YOUR BRAND";
   const quantity = selectedQuantity === "custom" ? Number(customQuantity) : Number(selectedQuantity || 0);
+  const hasValidQuantity = Number.isSafeInteger(quantity) && quantity >= MIN_ORDER_QUANTITY;
+  const pricingMatchesSelection = pricing?.bottleType === selectedType && Number(pricing?.quantity) === quantity;
+  const quantityError = !selectedQuantity
+    ? ""
+    : selectedQuantity === "custom" && !customQuantity
+      ? "Enter a bottle quantity."
+      : !Number.isSafeInteger(quantity)
+        ? "Enter a valid whole number of bottles."
+        : quantity < MIN_ORDER_QUANTITY
+          ? `Minimum order is ${MIN_ORDER_QUANTITY} bottles.`
+          : "";
 
   const quantityLabel = selectedQuantity === "custom" ? (customQuantity ? `${customQuantity} Bottles` : "Enter quantity") : (selectedQuantity ? `${selectedQuantity} Bottles` : "");
   const instructionsCount = instructions.length;
@@ -382,12 +413,17 @@ export default function OrderBottle() {
                       <label className="text-sm font-medium text-slate-700">Custom bottle quantity</label>
                       <input
                         type="number"
-                        min="1"
+                        min={MIN_ORDER_QUANTITY}
+                        step="1"
                         value={customQuantity}
-                        onChange={(event) => setCustomQuantity(Number(event.target.value))}
+                        onChange={(event) => setCustomQuantity(event.target.value)}
                         className="mt-3 w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none ring-1 ring-transparent transition focus:border-blue-400 focus:ring-blue-100"
                       />
+                      {quantityError ? <p className="mt-2 text-sm text-red-600" role="alert">{quantityError}</p> : null}
                     </div>
+                  ) : null}
+                  {selectedQuantity !== "custom" && quantityError ? (
+                    <p className="col-span-full text-sm text-red-600" role="alert">{quantityError}</p>
                   ) : null}
                 </div>
               </div>
@@ -482,7 +518,7 @@ export default function OrderBottle() {
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <button
                   type="button"
-                  disabled={!pricing || pricingError || addressLookupLoading}
+                  disabled={!pricingMatchesSelection || pricingError || addressLookupLoading || pricingLoading || !hasValidQuantity}
                   onClick={() => {
                     const orderData = {
                       bottleType: selectedType,
@@ -530,7 +566,7 @@ export default function OrderBottle() {
                 >
                   Place Order
                 </button>
-                <button type="button" disabled={!pricing || !selectedType || !selectedQuantity} onClick={() => addItem({ bottleType: selectedType, quantity, brandName: brandName.trim(), logo: logoPreview, printing: "Single Color Logo", specialInstructions: instructions, pricing })} className="inline-flex items-center justify-center rounded-3xl border border-slate-200 bg-white px-5 py-4 text-slate-700 shadow-sm transition hover:border-blue-300 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50">
+                <button type="button" disabled={!pricingMatchesSelection || !selectedType || !selectedQuantity || !hasValidQuantity || pricingLoading} onClick={() => addItem({ bottleType: selectedType, quantity, brandName: brandName.trim(), logo: logoPreview, printing: "Single Color Logo", specialInstructions: instructions, pricing })} className="inline-flex items-center justify-center rounded-3xl border border-slate-200 bg-white px-5 py-4 text-slate-700 shadow-sm transition hover:border-blue-300 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50">
                   <ShoppingCart size={18} className="mr-2 text-blue-600" />Add to Cart
                 </button>
               </div>
@@ -553,7 +589,18 @@ export default function OrderBottle() {
                   transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
                   className="relative z-10"
                 >
-                  <img src="/preview.png" alt="Bottle preview" className="relative h-[380px] w-auto max-w-full object-contain drop-shadow-[0_25px_45px_rgba(37,99,235,0.18)] sm:h-[330px] lg:h-[460px]" />
+                  {previewImageFailed ? (
+                    <div role="img" aria-label="Bottle preview unavailable" className="flex h-[380px] w-40 items-center justify-center rounded-[32px] bg-slate-100 text-center text-sm text-slate-500 sm:h-[330px] lg:h-[460px]">
+                      Bottle preview unavailable
+                    </div>
+                  ) : (
+                    <img
+                      src={previewImage}
+                      alt={selectedType ? `${selectedType} bottle preview` : "Bottle preview"}
+                      onError={() => setPreviewImageFailed(true)}
+                      className="relative h-[380px] w-auto max-w-full object-contain drop-shadow-[0_25px_45px_rgba(37,99,235,0.18)] sm:h-[330px] lg:h-[460px]"
+                    />
+                  )}
                   <AnimatedDiv
                     animate={reduceMotion ? undefined : { opacity: [0.2, 0.5, 0.2], x: ["-120%", "120%"] }}
                     transition={{ duration: 3.8, repeat: Infinity, ease: "easeInOut" }}

@@ -4,11 +4,12 @@
  */
 
 const BOTTLE_PRICES = {
-  "250ml": 5,
-  "500ml": 7,
-  "1000ml": 9,
-  "2000ml": 15,
+  "250ml": 7,
+  "500ml": 9,
+  "1000ml": 16,
 };
+
+const MIN_ORDER_QUANTITY = 600;
 
 const SHIPPING_RULES = {
   // 1 to 500 bottles
@@ -26,7 +27,7 @@ const SHIPPING_RULES = {
 
 /**
  * Get bottle price by type
- * @param {string} bottleType - e.g., "250ml", "500ml", "1000ml", "2000ml"
+ * @param {string} bottleType - e.g., "250ml", "500ml", "1000ml"
  * @returns {number|null} Price in INR or null if invalid type
  */
 const getBottlePrice = (bottleType) => {
@@ -65,6 +66,7 @@ const isValidBottleType = (bottleType) => {
 
 module.exports = {
   BOTTLE_PRICES,
+  MIN_ORDER_QUANTITY,
   SHIPPING_RULES,
   getBottlePrice,
   getAvailableBottleTypes,

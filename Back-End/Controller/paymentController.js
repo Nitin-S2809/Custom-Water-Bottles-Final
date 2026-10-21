@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const Razorpay = require("razorpay");
 const orderService = require("../Services/orderService");
-const { calculatePrice } = require("../Services/pricingService");
+const { calculatePrice, calculateCartPrice } = require("../Services/pricingService");
 const { isValidBottleType } = require("../config/pricingConfig");
 
 let razorpay;
@@ -95,7 +95,6 @@ const createPaymentOrder = async (req, res) => {
       printing,
       paymentMethod,
       logoUrl,
-      totalAmount,
     } = req.body;
 
     if (!userId) {
@@ -116,39 +115,13 @@ const createPaymentOrder = async (req, res) => {
     let expectedTotal;
 
     if (itemList.length > 0) {
-      const validatedItems = itemList.map((item) => {
-        const bottleItemType = item?.bottleType;
-        if (!bottleItemType || !isValidBottleType(bottleItemType)) {
-          throw new Error("One or more cart items have an invalid bottle type.");
-        }
-
-        const itemQuantity = Number(item?.quantity ?? 0);
-        if (!Number.isFinite(itemQuantity) || itemQuantity <= 0) {
-          throw new Error("Each cart item must have a valid quantity.");
-        }
-
-        const itemUnitPrice = Number(item?.unitPrice ?? 0);
-        const itemSubtotal = Number(item?.subtotal ?? itemUnitPrice * itemQuantity ?? 0);
-
-        return {
-          bottleType: bottleItemType,
-          quantity: itemQuantity,
-          unitPrice: itemUnitPrice,
-          subtotal: itemSubtotal,
-        };
-      });
-
-      const totalQuantity = validatedItems.reduce((sum, item) => sum + item.quantity, 0);
-      const subtotal = validatedItems.reduce((sum, item) => sum + item.subtotal, 0);
-      const shipping = require("../config/pricingConfig").calculateShipping(totalQuantity);
-      expectedTotal = subtotal + shipping;
-      const submittedTotal = Number(totalAmount);
-      if (!Number.isFinite(submittedTotal) || Math.round(submittedTotal) !== Math.round(expectedTotal)) {
-        return res.status(400).json({
-          success: false,
-          message: "Order total does not match the server-approved amount.",
-        });
+      const cartResult = calculateCartPrice(itemList);
+      if (!cartResult.success) {
+        return res.status(400).json({ success: false, message: cartResult.message });
       }
+
+      const { items: validatedItems, quantity: totalQuantity, subtotal, shipping, total } = cartResult.pricing;
+      expectedTotal = total;
 
       orderPayload = {
         userId,
@@ -187,14 +160,6 @@ const createPaymentOrder = async (req, res) => {
       }
 
       expectedTotal = Number(pricingResult.pricing.total);
-      const submittedTotal = Number(totalAmount);
-      if (!Number.isFinite(submittedTotal) || Math.round(submittedTotal) !== Math.round(expectedTotal)) {
-        return res.status(400).json({
-          success: false,
-          message: "Order total does not match the server-approved amount.",
-        });
-      }
-
       const { pricing } = pricingResult;
       orderPayload = {
         userId,
