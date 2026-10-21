@@ -16,7 +16,7 @@ const bottleSections = [
   {
     size: "500 ml",
     bottles: [
-      { image: "/bottle4.png", caption: "AquaBrand Design" },
+      { image: "/Bottle4.png", caption: "AquaBrand Design" },
       { image: "/bottle5.png", caption: "Corporate Branding" },
       { image: "/bottle6.png", caption: "Restaurant Branding" },
     ],
@@ -24,7 +24,7 @@ const bottleSections = [
   {
     size: "1 Litre",
     bottles: [
-      { image: "/Bottle7.png", caption: "AquaBrand Design" },
+      { image: "/bottle7.png", caption: "AquaBrand Design" },
       { image: "/bottle8.png", caption: "Resort Branding" },
       { image: "/bottle9.png", caption: "Corporate Branding" },
     ],
