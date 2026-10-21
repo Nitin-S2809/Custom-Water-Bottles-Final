@@ -35,6 +35,7 @@ import AdminLoginPage from "./Pages/AdminLoginPage";
 import AdminAccessDenied from "./Pages/AdminAccessDenied";
 import AdminOrdersPage from "./Pages/adminOrders";
 import AboutUs from "./Pages/aboutUs";
+import CustomizedBottles from "./Pages/CustomizedBottles";
 import ForgotPasswordPage from "./components/ForgotPasswordPage";
 import ResetPasswordPage from "./components/ResetPasswordPage";
 
@@ -54,6 +55,10 @@ const PUBLIC_ROUTE_METADATA = {
   "/about": {
     title: "About AquaBrand | Customized Water Bottles for Businesses",
     description: "Learn about AquaBrand, the platform connecting businesses with trusted and licensed local water suppliers for custom-branded bottles.",
+  },
+  "/customized-bottles": {
+    title: "Our Customized Bottles | AquaBrand",
+    description: "Explore custom-branded AquaBrand bottle designs in 250 ml, 500 ml, and 1 litre sizes.",
   },
   "/contact": {
     title: "Contact AquaBrand | Customized Water Bottles",
@@ -324,6 +329,7 @@ function App() {
         <Route path="/suppliers" element={<ForSuppliers />} />
         <Route path="/contact" element={<CallToAction />} />
         <Route path="/about" element={<AboutUs />} />
+        <Route path="/customized-bottles" element={<CustomizedBottles />} />
         <Route path="/usersignup" element={<UserSignup />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />

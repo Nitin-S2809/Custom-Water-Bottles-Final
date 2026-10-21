@@ -15,6 +15,7 @@ const Navbar = () => {
 
   const menuItems = [
     { label: "Home", href: "/" },
+    { label: "Our Work", href: "/customized-bottles" },
     { label: "How It Works", href: "/how-it-works" },
     { label: "Suppliers", href: "/suppliers" },
     { label: "About Us", href: "/about" },
