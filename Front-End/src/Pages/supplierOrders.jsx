@@ -306,7 +306,10 @@ function OrderDetails({ order, onClose, onStatusUpdated, token }) {
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Customer information</p>
             </div>
-            {[["Customer name", customerName]].map(([label, value]) => (
+            {[
+              ["Customer name", customerName],
+              ["Customer email", order.customer?.email || "Not available"],
+            ].map(([label, value]) => (
               <div key={label} className="border-b border-slate-100 pb-2">
                 <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{label}</p>
                 <p className="mt-1 text-sm font-medium text-slate-800">{value}</p>

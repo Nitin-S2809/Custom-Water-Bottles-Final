@@ -512,6 +512,7 @@ export default function SupplierOrderDetails({
 
             <dl className="mt-5 space-y-4">
               <DetailItem label="Name" value={order.customer?.username || order.customer?.fullName || "Not available"} />
+              <DetailItem label="Email" value={order.customer?.email || "Not available"} />
             </dl>
           </section>
 
