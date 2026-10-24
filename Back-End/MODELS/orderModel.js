@@ -92,6 +92,26 @@ const orderSchema = new mongoose.Schema(
       },
     },
 
+    supplierPricing: {
+      type: new mongoose.Schema(
+        {
+          items: [
+            {
+              bottleType: { type: String, required: true },
+              quantity: { type: Number, required: true, min: 1 },
+              unitCostPaise: { type: Number, required: true, min: 0 },
+              subtotalPaise: { type: Number, required: true, min: 0 },
+            },
+          ],
+          subtotalPaise: { type: Number, required: true, min: 0 },
+          currency: { type: String, enum: ["INR"], default: "INR" },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+      select: false,
+    },
+
     status: {
       type: String,
       enum: [
@@ -117,6 +137,12 @@ const orderSchema = new mongoose.Schema(
       type: String,
       enum: ["pending", "paid", "failed", "captured"],
       default: "pending",
+    },
+
+    paymentOrderStatus: {
+      type: String,
+      enum: ["not_applicable", "creating", "ready", "unconfirmed"],
+      default: "not_applicable",
     },
 
     paymentMethod: {
@@ -179,7 +205,7 @@ const orderSchema = new mongoose.Schema(
 
     supplierPayoutStatus: {
       type: String,
-      enum: ["not_eligible", "pending", "processing", "processed", "failed"],
+      enum: ["not_eligible", "pending", "initiating", "processing", "processed", "failed"],
       default: "not_eligible",
     },
 
@@ -191,6 +217,12 @@ const orderSchema = new mongoose.Schema(
     supplierPayoutAmount: {
       type: Number,
       default: 0,
+    },
+
+    supplierPayoutAmountPaise: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
 
     supplierPayoutInitiatedAt: {
@@ -225,6 +257,11 @@ const orderSchema = new mongoose.Schema(
   {
     timestamps: true,
   }
+);
+
+orderSchema.index(
+  { status: 1, userId: 1 },
+  { name: "delivered_customers_status_user" }
 );
 
 module.exports = mongoose.model("Order", orderSchema);

@@ -285,6 +285,7 @@ const verifyDeliveryOtpForOrder = async (req, res) => {
     } catch (error) {
         if (error.code === "ORDER_NOT_FOUND") return res.status(404).json({ success: false, message: error.message });
         if (error.code === "ORDER_ALREADY_DELIVERED") return res.status(400).json({ success: false, message: error.message });
+        if (error.code === "ORDER_NOT_ELIGIBLE") return res.status(400).json({ success: false, message: error.message });
         if (error.code === "PAYMENT_NOT_CAPTURED") return res.status(400).json({ success: false, message: error.message });
         if (error.code === "INVALID_OTP") return res.status(400).json({ success: false, message: "Invalid delivery OTP" });
         if (error.code === "OTP_EXPIRED") return res.status(400).json({ success: false, message: "Delivery OTP has expired" });
@@ -305,7 +306,9 @@ const initiateSupplierPayoutForOrder = async (req, res) => {
         if (error.code === "SUPPLIER_NOT_APPROVED") return res.status(403).json({ success: false, message: error.message });
         if (error.code === "OTP_NOT_VERIFIED") return res.status(400).json({ success: false, message: error.message });
         if (error.code === "SUPPLIER_PAYOUT_ACCOUNT_NOT_CONFIGURED") return res.status(400).json({ success: false, message: error.message });
+        if (error.code === "RAZORPAY_NOT_CONFIGURED") return res.status(503).json({ success: false, message: error.message });
         if (error.code === "DUPLICATE_PAYOUT_ATTEMPT") return res.status(409).json({ success: false, message: error.message });
+        if (error.code === "PAYOUT_RECONCILIATION_REQUIRED") return res.status(409).json({ success: false, message: error.message });
         if (error.code === "PAYMENT_NOT_CAPTURED") return res.status(400).json({ success: false, message: error.message });
         return res.status(500).json({ success: false, message: "Unable to initiate supplier payout" });
     }
@@ -518,7 +521,7 @@ async function downloadSupplierStatement(req, res) {
     try {
         const { invoices } = await supplierservices.getSupplierInvoices(req.user.id);
         const rows = [
-            ["Invoice ID", "Order ID", "Date", "Amount", "Status"],
+            ["Invoice ID", "Order ID", "Date", "Supplier Bottle Cost", "Payout Status"],
             ...invoices.map((invoice) => [
                 invoice.invoiceId,
                 invoice.orderId,

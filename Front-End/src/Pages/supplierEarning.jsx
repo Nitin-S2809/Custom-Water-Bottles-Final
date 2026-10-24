@@ -11,7 +11,7 @@ const emptyEarnings = {
   transactions: [],
 };
 
-const currency = (value) => `₹${Number(value || 0).toLocaleString("en-IN")}`;
+const currency = (value) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value || 0));
 
 function SummaryCard({ title, value, subtitle, icon: Icon, tone }) {
   return (
@@ -50,7 +50,7 @@ function EarningsChart({ points }) {
   return (
     <div className="mt-6 overflow-x-auto">
       <div className="min-w-[620px]">
-        <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="h-[220px] w-full" role="img" aria-label="Six month earnings chart">
+        <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="h-[220px] w-full" role="img" aria-label="Supplier settlements chart">
           {gridLines.map((ratio) => {
             const y = top + innerHeight - ratio * innerHeight;
             const label = currency(maxValue * ratio);
@@ -67,10 +67,10 @@ function EarningsChart({ points }) {
 
 function TransactionsTable({ transactions }) {
   if (!transactions.length) {
-    return <div className="flex min-h-[245px] flex-col items-center justify-center px-6 text-center"><span className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400"><FileText size={22} /></span><p className="mt-4 text-sm font-semibold text-slate-700">No transactions yet</p><p className="mt-2 max-w-xs text-xs leading-relaxed text-slate-400">Your earnings will appear here once you complete orders.</p></div>;
+    return <div className="flex min-h-[245px] flex-col items-center justify-center px-6 text-center"><span className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400"><FileText size={22} /></span><p className="mt-4 text-sm font-semibold text-slate-700">No settlements yet</p><p className="mt-2 max-w-xs text-xs leading-relaxed text-slate-400">Confirmed supplier transfers will appear here when processed.</p></div>;
   }
 
-  return <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left"><thead><tr className="border-b border-slate-100 text-[10px] uppercase tracking-wide text-slate-400"><th className="px-5 py-3 font-medium">Date</th><th className="px-3 py-3 font-medium">Order ID</th><th className="px-3 py-3 font-medium">Amount</th><th className="px-3 py-3 font-medium">Status</th><th className="px-5 py-3 font-medium">Payment Mode</th></tr></thead><tbody>{transactions.map((transaction) => <tr key={transaction.orderId} className="border-b border-slate-100 last:border-0"><td className="px-5 py-4 text-xs text-slate-600">{transaction.date}</td><td className="px-3 py-4 text-xs font-medium text-slate-700">{transaction.orderId}</td><td className="px-3 py-4 text-xs font-semibold text-slate-800">{currency(transaction.amount)}</td><td className="px-3 py-4"><span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${transaction.status === "Delivered" ? "bg-emerald-50 text-emerald-600" : "bg-orange-50 text-orange-600"}`}>{transaction.status}</span></td><td className="px-5 py-4 text-xs text-slate-500">{transaction.paymentMode || "Not recorded"}</td></tr>)}</tbody></table></div>;
+  return <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left"><thead><tr className="border-b border-slate-100 text-[10px] uppercase tracking-wide text-slate-400"><th className="px-5 py-3 font-medium">Date</th><th className="px-3 py-3 font-medium">Order ID</th><th className="px-3 py-3 font-medium">Settlement amount</th><th className="px-3 py-3 font-medium">Status</th><th className="px-5 py-3 font-medium">Payment Mode</th></tr></thead><tbody>{transactions.map((transaction) => <tr key={transaction.orderId} className="border-b border-slate-100 last:border-0"><td className="px-5 py-4 text-xs text-slate-600">{transaction.date}</td><td className="px-3 py-4 text-xs font-medium text-slate-700">{transaction.orderId}</td><td className="px-3 py-4 text-xs font-semibold text-slate-800">{currency(transaction.amount)}</td><td className="px-3 py-4"><span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${transaction.status === "Paid" ? "bg-emerald-50 text-emerald-600" : transaction.status === "Failed" ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600"}`}>{transaction.status}</span></td><td className="px-5 py-4 text-xs text-slate-500">{transaction.paymentMode || "Not recorded"}</td></tr>)}</tbody></table></div>;
 }
 
 export default function SupplierEarning() {
@@ -112,11 +112,11 @@ export default function SupplierEarning() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><h1 className="text-xl font-bold text-slate-900">Earnings</h1><p className="mt-1 text-xs text-slate-500">Track your income, orders and payment history.</p></div><label className="relative inline-flex items-center"><span className="sr-only">Earnings period</span><select value={period} onChange={(event) => setPeriod(event.target.value)} className="appearance-none rounded-md border border-slate-200 bg-white py-2.5 pl-3 pr-9 text-xs font-medium text-slate-600 shadow-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"><option value="6">Last 6 Months</option><option value="12">Last 12 Months</option></select><ChevronDown size={14} className="pointer-events-none absolute right-3 text-slate-400" /></label></div>
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><h1 className="text-xl font-bold text-slate-900">Supplier Settlements</h1><p className="mt-1 text-xs text-slate-500">Customer order totals, supplier bottle costs, and transfers are tracked separately.</p></div><label className="relative inline-flex items-center"><span className="sr-only">Settlement period</span><select value={period} onChange={(event) => setPeriod(event.target.value)} className="appearance-none rounded-md border border-slate-200 bg-white py-2.5 pl-3 pr-9 text-xs font-medium text-slate-600 shadow-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"><option value="6">Last 6 Months</option><option value="12">Last 12 Months</option></select><ChevronDown size={14} className="pointer-events-none absolute right-3 text-slate-400" /></label></div>
       {error ? <p className="rounded-md border border-red-100 bg-red-50 px-4 py-3 text-xs text-red-600">{error}</p> : null}
       {loading ? <div className="rounded-lg border border-slate-200 bg-white px-5 py-12 text-center text-sm text-slate-500 shadow-sm">Loading earnings...</div> : <>
-        <section className="grid gap-4 md:grid-cols-3"><SummaryCard title="Total Earnings" value={earnings.totalEarnings} subtitle="All time" icon={WalletCards} tone="bg-blue-50 text-blue-600" /><SummaryCard title="This Month" value={earnings.currentMonthEarnings} subtitle={earnings.currentMonthLabel || "Current month"} icon={TrendingUp} tone="bg-emerald-50 text-emerald-600" /><SummaryCard title="Pending Payments" value={earnings.pendingPayments} subtitle="To be processed" icon={Clock3} tone="bg-orange-50 text-orange-600" /></section>
-        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-sm font-bold text-slate-800">Earnings Overview</h2><span className="flex items-center gap-2 text-[11px] text-slate-500"><span className="h-2 w-2 rounded-full bg-blue-600" /> Earnings</span></div><EarningsChart points={monthlyEarnings} /></section>
+        <section className="grid gap-4 md:grid-cols-3"><SummaryCard title="Paid Supplier Settlements" value={earnings.totalEarnings} subtitle="Confirmed transfers" icon={WalletCards} tone="bg-blue-50 text-blue-600" /><SummaryCard title="This Month" value={earnings.currentMonthEarnings} subtitle={earnings.currentMonthLabel || "Current month"} icon={TrendingUp} tone="bg-emerald-50 text-emerald-600" /><SummaryCard title="Pending Supplier Bottle Costs" value={earnings.pendingPayments} subtitle="Not yet settled" icon={Clock3} tone="bg-orange-50 text-orange-600" /></section>
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-sm font-bold text-slate-800">Supplier settlements overview</h2><span className="flex items-center gap-2 text-[11px] text-slate-500"><span className="h-2 w-2 rounded-full bg-blue-600" /> Settlements</span></div><EarningsChart points={monthlyEarnings} /></section>
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-100 px-5 py-4 sm:px-6"><h2 className="text-sm font-bold text-slate-800">Recent Transactions</h2></div><TransactionsTable transactions={transactions} /></section>
       </>}
     </div>

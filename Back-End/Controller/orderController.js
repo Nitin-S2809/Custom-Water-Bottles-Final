@@ -84,7 +84,11 @@ const createOrder = async (req, res) => {
       };
 
       const order = await orderService.createOrder(orderData);
-      return res.status(201).json({ success: true, message: "Order created successfully", order });
+      return res.status(201).json({
+        success: true,
+        message: "Order created successfully",
+        order: orderService.toCustomerSafeOrder(order),
+      });
     }
 
     if (!bottleType || !getAvailableBottleTypes().includes(bottleType)) {
@@ -136,7 +140,7 @@ const createOrder = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "Order created successfully",
-      order,
+      order: orderService.toCustomerSafeOrder(order),
     });
   } catch (error) {
     console.error("Create order error:", error);
@@ -256,6 +260,12 @@ const updateAdminOrderStatus = async (req, res) => {
     const order = await orderService.updateAdminOrderStatus(req.params.id, status);
     return res.status(200).json({ success: true, message: "Order status updated successfully", order });
   } catch (error) {
+    if (error.code === "DELIVERY_OTP_REQUIRED") {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    if (error.code === "ORDER_ALREADY_DELIVERED") {
+      return res.status(409).json({ success: false, message: error.message });
+    }
     if (error.code === "INVALID_ORDER_STATUS") {
       return res.status(400).json({ success: false, message: error.message });
     }

@@ -5,6 +5,17 @@ const Supplier = require("../MODELS/supplier");
 const User = require("../MODELS/usermodel");
 const Address = require("../MODELS/addressModel");
 const Razorpay = require("razorpay");
+const { calculateSupplierPricing } = require("./supplierPricingService");
+const { toSupplierSafeOrder } = require("./supplierOrderPrivacy");
+const {
+  DELIVERY_OTP_ELIGIBLE_STATUSES,
+  isDeliveryOtpOrderEligible,
+  buildDeliveryOtpVerificationFilter,
+  buildFailedDeliveryOtpAttemptFilter,
+  buildDeliveryOtpCancellationUpdate,
+} = require("./deliveryOtpPolicy");
+const { reserveSupplierPayout } = require("./supplierPayoutReservation");
+const { buildHappyClientsPipeline } = require("./happyClientsQuery");
 
 const DELIVERY_OTP_TTL_MINUTES = Number(process.env.DELIVERY_OTP_TTL_MINUTES || 10);
 const DELIVERY_OTP_MAX_ATTEMPTS = Number(process.env.DELIVERY_OTP_MAX_ATTEMPTS || 3);
@@ -23,16 +34,37 @@ const secureCompare = (a, b) => {
 };
 
 const createOrder = async (orderData) => {
-  const order = await Order.create(orderData);
+  const trustedOrderData = { ...orderData };
+  delete trustedOrderData.supplierPricing;
+  const supplierPricing = calculateSupplierPricing(trustedOrderData);
+  const order = await Order.create({
+    ...trustedOrderData,
+    supplierPricing,
+  });
 
   return order;
+};
+
+const toCustomerSafeOrder = (order) => {
+  if (!order) return order;
+  const safeOrder = typeof order.toObject === "function" ? order.toObject() : { ...order };
+  delete safeOrder.supplierPricing;
+  delete safeOrder.supplierPayoutStatus;
+  delete safeOrder.supplierPayoutId;
+  delete safeOrder.supplierPayoutAmount;
+  delete safeOrder.supplierPayoutAmountPaise;
+  delete safeOrder.supplierPayoutInitiatedAt;
+  delete safeOrder.supplierPayoutCompletedAt;
+  delete safeOrder.supplierPayoutFailedAt;
+  delete safeOrder.supplierPayoutFailureReason;
+  return safeOrder;
 };
 
 const getOrdersByUser = async (userId) => {
   const orders = await Order.find({ userId })
     .sort({ createdAt: -1 });
 
-  return orders;
+  return orders.map(toCustomerSafeOrder);
 };
 
 const getOrderById = async (orderId) => {
@@ -55,14 +87,12 @@ const getCustomerOrderById = async ({ orderId, userId }) => {
       : null,
   ]);
 
-  const {
-    razorpayPaymentId,
-    razorpaySignature,
-    deliveryOtpHash,
-    deliveryOtpExpiresAt,
-    deliveryOtpAttempts,
-    ...safeOrder
-  } = order;
+  const safeOrder = toCustomerSafeOrder(order);
+  delete safeOrder.razorpayPaymentId;
+  delete safeOrder.razorpaySignature;
+  delete safeOrder.deliveryOtpHash;
+  delete safeOrder.deliveryOtpExpiresAt;
+  delete safeOrder.deliveryOtpAttempts;
 
   return {
     ...safeOrder,
@@ -78,6 +108,42 @@ const getOrderByRazorpayId = async (razorpayOrderId) => {
 
 const updateOrder = async (orderId, updates) => {
   return Order.findByIdAndUpdate(orderId, updates, { new: true, runValidators: true });
+};
+
+const markPaymentAsPaid = async (orderId, paymentDetails = {}) => {
+  const updateDetails = { ...paymentDetails };
+  const paymentStatus = updateDetails.paymentStatus === "captured" ? "captured" : "paid";
+  delete updateDetails.paymentStatus;
+  const updatedOrder = await Order.findOneAndUpdate(
+    { _id: orderId, paymentStatus: { $nin: ["paid", "captured"] } },
+    {
+      $set: {
+        ...updateDetails,
+        paymentStatus,
+        paidAt: updateDetails.paidAt || new Date(),
+      },
+    },
+    { new: true, runValidators: true }
+  );
+
+  if (updatedOrder) return toSupplierSafeOrder(updatedOrder);
+
+  const existingOrder = await Order.findById(orderId);
+  if (existingOrder && ["paid", "captured"].includes(existingOrder.paymentStatus)) {
+    return existingOrder;
+  }
+
+  const error = new Error("Order payment status could not be updated");
+  error.code = "PAYMENT_STATE_CONFLICT";
+  throw error;
+};
+
+const markPaymentAsFailed = async (orderId) => {
+  return Order.findOneAndUpdate(
+    { _id: orderId, paymentStatus: { $nin: ["paid", "captured"] } },
+    { $set: { paymentStatus: "failed" } },
+    { new: true, runValidators: true }
+  );
 };
 
 const generateDeliveryOtp = async ({ orderId, supplierId }) => {
@@ -107,7 +173,7 @@ const generateDeliveryOtp = async ({ orderId, supplierId }) => {
     throw error;
   }
 
-  const allowedStatuses = ["ready", "shipped", "out-for-delivery", "in-production"];
+  const allowedStatuses = DELIVERY_OTP_ELIGIBLE_STATUSES;
   if (!allowedStatuses.includes(order.status)) {
     const error = new Error("Order is not ready for delivery OTP generation");
     error.code = "ORDER_NOT_READY";
@@ -238,6 +304,12 @@ const verifyDeliveryOtp = async ({ orderId, supplierId, otp }) => {
     throw error;
   }
 
+  if (!isDeliveryOtpOrderEligible(order, supplierId)) {
+    const error = new Error("Order is not eligible for delivery verification");
+    error.code = "ORDER_NOT_ELIGIBLE";
+    throw error;
+  }
+
   if (!order.paymentStatus || !["paid", "captured"].includes(order.paymentStatus)) {
     const error = new Error("Payment not captured");
     error.code = "PAYMENT_NOT_CAPTURED";
@@ -252,7 +324,7 @@ const verifyDeliveryOtp = async ({ orderId, supplierId, otp }) => {
 
   if (new Date(order.deliveryOtpExpiresAt) < new Date()) {
     await Order.updateOne(
-      { _id: orderId, supplierId },
+      { _id: orderId, supplierId, deliveryOtpHash: order.deliveryOtpHash, status: { $in: DELIVERY_OTP_ELIGIBLE_STATUSES } },
       { $set: { deliveryOtpHash: null, deliveryOtpExpiresAt: null, deliveryOtpAttempts: DELIVERY_OTP_MAX_ATTEMPTS } }
     );
     const error = new Error("Delivery OTP has expired");
@@ -264,20 +336,42 @@ const verifyDeliveryOtp = async ({ orderId, supplierId, otp }) => {
   const candidateHash = toHash(otpValue);
 
   if (!secureCompare(candidateHash, order.deliveryOtpHash)) {
-    const attempts = (order.deliveryOtpAttempts || 0) + 1;
-    const expired = attempts >= DELIVERY_OTP_MAX_ATTEMPTS;
+    const attemptUpdate = await Order.findOneAndUpdate(
+      buildFailedDeliveryOtpAttemptFilter({
+        orderId,
+        supplierId,
+        otpHash: order.deliveryOtpHash,
+        maxAttempts: DELIVERY_OTP_MAX_ATTEMPTS,
+      }),
+      { $inc: { deliveryOtpAttempts: 1 } },
+      { new: true }
+    ).select("deliveryOtpAttempts").lean();
 
-    await Order.updateOne(
-      { _id: orderId, supplierId },
-      {
-        $set: {
-          deliveryOtpAttempts: attempts,
-          ...(expired ? { deliveryOtpHash: null, deliveryOtpExpiresAt: null } : {}),
-        },
+    if (!attemptUpdate) {
+      const current = await Order.findOne({ _id: orderId, supplierId }).select("+deliveryOtpHash").lean();
+      if (!current || !isDeliveryOtpOrderEligible(current, supplierId)) {
+        const error = new Error("Order is not eligible for delivery verification");
+        error.code = "ORDER_NOT_ELIGIBLE";
+        throw error;
       }
-    );
+      if ((current.deliveryOtpAttempts || 0) >= DELIVERY_OTP_MAX_ATTEMPTS || !current.deliveryOtpHash) {
+        const error = new Error("Maximum delivery OTP attempts exceeded");
+        error.code = "OTP_ATTEMPTS_EXCEEDED";
+        throw error;
+      }
+    }
 
-    if (expired) {
+    if (attemptUpdate.deliveryOtpAttempts >= DELIVERY_OTP_MAX_ATTEMPTS) {
+      await Order.updateOne(
+        {
+          _id: orderId,
+          supplierId,
+          deliveryOtpHash: order.deliveryOtpHash,
+          deliveryOtpAttempts: { $gte: DELIVERY_OTP_MAX_ATTEMPTS },
+          status: { $in: DELIVERY_OTP_ELIGIBLE_STATUSES },
+        },
+        { $set: { deliveryOtpHash: null, deliveryOtpExpiresAt: null } }
+      );
       const error = new Error("Maximum delivery OTP attempts exceeded");
       error.code = "OTP_ATTEMPTS_EXCEEDED";
       throw error;
@@ -290,15 +384,12 @@ const verifyDeliveryOtp = async ({ orderId, supplierId, otp }) => {
 
   const verifiedAt = new Date();
   const updatedOrder = await Order.findOneAndUpdate(
-    {
-      _id: orderId,
+    buildDeliveryOtpVerificationFilter({
+      orderId,
       supplierId,
-      status: { $ne: "delivered" },
-      deliveryStatus: { $ne: "completed" },
-      paymentStatus: { $in: ["paid", "captured"] },
-      deliveryOtpHash: order.deliveryOtpHash,
-      deliveryOtpExpiresAt: { $gt: verifiedAt },
-    },
+      otpHash: order.deliveryOtpHash,
+      verifiedAt,
+    }),
     {
       $set: {
         status: "delivered",
@@ -313,7 +404,7 @@ const verifyDeliveryOtp = async ({ orderId, supplierId, otp }) => {
     { new: true, runValidators: true }
   );
 
-  if (updatedOrder) return updatedOrder;
+  if (updatedOrder) return toSupplierSafeOrder(updatedOrder);
 
   const current = await Order.findOne({ _id: orderId, supplierId }).select("+deliveryOtpHash").lean();
   if (!current) {
@@ -329,6 +420,11 @@ const verifyDeliveryOtp = async ({ orderId, supplierId, otp }) => {
   if (!current.paymentStatus || !["paid", "captured"].includes(current.paymentStatus)) {
     const error = new Error("Payment not captured");
     error.code = "PAYMENT_NOT_CAPTURED";
+    throw error;
+  }
+  if (!isDeliveryOtpOrderEligible(current, supplierId)) {
+    const error = new Error("Order is not eligible for delivery verification");
+    error.code = "ORDER_NOT_ELIGIBLE";
     throw error;
   }
   if (current.deliveryOtpHash && current.deliveryOtpExpiresAt && new Date(current.deliveryOtpExpiresAt) <= verifiedAt) {
@@ -347,7 +443,10 @@ const verifyDeliveryOtp = async ({ orderId, supplierId, otp }) => {
 };
 
 const initiateSupplierPayout = async ({ orderId, supplierId }) => {
-  const order = await Order.findOne({ _id: orderId, supplierId }).populate("supplierId").lean();
+  let order = await Order.findOne({ _id: orderId, supplierId })
+    .select("+supplierPricing")
+    .populate("supplierId")
+    .lean();
 
   if (!order) {
     const error = new Error("Order not found for this supplier");
@@ -359,6 +458,12 @@ const initiateSupplierPayout = async ({ orderId, supplierId }) => {
     const error = new Error("Supplier not assigned to this order");
     error.code = "SUPPLIER_NOT_ASSIGNED";
     throw error;
+  }
+
+  if (!order.supplierPricing) {
+    const supplierPricing = calculateSupplierPricing(order);
+    await Order.updateOne({ _id: orderId, supplierId, supplierPricing: { $exists: false } }, { $set: { supplierPricing } });
+    order = { ...order, supplierPricing };
   }
 
   const supplier = await Supplier.findById(order.supplierId._id || order.supplierId).lean();
@@ -386,9 +491,11 @@ const initiateSupplierPayout = async ({ orderId, supplierId }) => {
     throw error;
   }
 
-  if (order.supplierPayoutStatus === "processing" || order.supplierPayoutStatus === "processed") {
+  if (["initiating", "processing", "processed", "failed"].includes(order.supplierPayoutStatus)) {
     const error = new Error("Supplier payout already initiated for this order");
-    error.code = "DUPLICATE_PAYOUT_ATTEMPT";
+    error.code = order.supplierPayoutStatus === "initiating"
+      ? "PAYOUT_RECONCILIATION_REQUIRED"
+      : "DUPLICATE_PAYOUT_ATTEMPT";
     throw error;
   }
 
@@ -398,7 +505,6 @@ const initiateSupplierPayout = async ({ orderId, supplierId }) => {
       {
         $set: {
           supplierPayoutStatus: "not_eligible",
-          supplierPayoutAmount: Number(order.pricing?.total || 0),
           supplierPayoutFailureReason: "Payouts are disabled in environment configuration",
         },
       }
@@ -417,42 +523,96 @@ const initiateSupplierPayout = async ({ orderId, supplierId }) => {
     throw error;
   }
 
-  const amountInPaise = Math.round(Number(order.pricing?.total || 0) * 100);
+  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+    const error = new Error("Razorpay credentials are not configured for supplier payouts");
+    error.code = "RAZORPAY_NOT_CONFIGURED";
+    throw error;
+  }
+
   const razorpay = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID,
     key_secret: process.env.RAZORPAY_KEY_SECRET,
   });
-
-  const transfer = await razorpay.transfers.create({
-    account: supplier.razorpayLinkedAccountId,
-    amount: amountInPaise,
-    currency: "INR",
-    notes: {
-      orderId: String(order._id),
-      supplierId: String(supplier._id),
-    },
-    purpose: "payout",
+  const amountInPaise = order.supplierPricing.subtotalPaise;
+  const initiatedAt = new Date();
+  const reservation = await reserveSupplierPayout({
+    Order,
+    orderId,
+    supplierId,
+    amountPaise: amountInPaise,
+    initiatedAt,
   });
 
-  const updatedOrder = await Order.findOneAndUpdate(
-    { _id: orderId, supplierId: supplier._id },
-    {
-      $set: {
-        supplierPayoutStatus: "processing",
-        supplierPayoutId: transfer.id,
-        supplierPayoutAmount: Number(order.pricing?.total || 0),
-        supplierPayoutInitiatedAt: new Date(),
+  if (!reservation) {
+    const error = new Error("Supplier payout is already reserved or requires reconciliation");
+    error.code = order.supplierPayoutStatus === "initiating"
+      ? "PAYOUT_RECONCILIATION_REQUIRED"
+      : "DUPLICATE_PAYOUT_ATTEMPT";
+    throw error;
+  }
+
+  let transfer;
+  try {
+    transfer = await razorpay.transfers.create({
+      account: supplier.razorpayLinkedAccountId,
+      amount: amountInPaise,
+      currency: "INR",
+      notes: {
+        orderId: String(order._id),
+        supplierId: String(supplier._id),
       },
-    },
-    { new: true, runValidators: true }
-  );
+      purpose: "payout",
+    });
+  } catch (transferError) {
+    console.error("Supplier transfer outcome requires reconciliation", transferError.code || transferError.name || "UnknownError");
+    const error = new Error("Transfer outcome is unconfirmed. Reconcile with Razorpay before retrying.");
+    error.code = "PAYOUT_RECONCILIATION_REQUIRED";
+    throw error;
+  }
+
+  if (!transfer || typeof transfer.id !== "string" || !transfer.id) {
+    const error = new Error("Transfer response was incomplete. Reconcile with Razorpay before retrying.");
+    error.code = "PAYOUT_RECONCILIATION_REQUIRED";
+    throw error;
+  }
+
+  let updatedOrder;
+  try {
+    updatedOrder = await Order.findOneAndUpdate(
+      { _id: orderId, supplierId: supplier._id, supplierPayoutStatus: "initiating" },
+      {
+        $set: {
+          supplierPayoutStatus: "processing",
+          supplierPayoutId: transfer.id,
+        },
+      },
+      { new: true, runValidators: true }
+    );
+  } catch (persistenceError) {
+    console.error("Supplier transfer created but payout record requires reconciliation", persistenceError.code || persistenceError.name || "UnknownError");
+    const error = new Error("Transfer was accepted but could not be recorded. Reconcile with Razorpay before retrying.");
+    error.code = "PAYOUT_RECONCILIATION_REQUIRED";
+    throw error;
+  }
+
+  if (!updatedOrder) {
+    const error = new Error("Transfer was accepted but payout record requires reconciliation");
+    error.code = "PAYOUT_RECONCILIATION_REQUIRED";
+    throw error;
+  }
 
   return {
     success: true,
     payoutStatus: "processing",
     transfer,
-    order: updatedOrder,
+    order: toSupplierSafeOrder(updatedOrder),
   };
+};
+
+const getHappyClientsCount = async () => {
+  const [result] = await Order.aggregate(buildHappyClientsPipeline());
+
+  return result?.happyClients || 0;
 };
 
 const ORDER_STATUS_VALUES = ["pending", "accepted", "in-production", "ready", "shipped", "out-for-delivery", "delivered", "cancelled"];
@@ -796,13 +956,42 @@ const updateAdminOrderStatus = async (orderId, status) => {
     throw error;
   }
 
-  const order = await Order.findByIdAndUpdate(
-    orderId,
-    { $set: { status: normalizedStatus, updatedAt: new Date() } },
+  if (normalizedStatus === "delivered") {
+    const error = new Error("Order completion must be verified using the delivery OTP flow");
+    error.code = "DELIVERY_OTP_REQUIRED";
+    throw error;
+  }
+
+  const current = await Order.findById(orderId).select("status").lean();
+  if (!current) {
+    const error = new Error("Order not found");
+    error.code = "ORDER_NOT_FOUND";
+    throw error;
+  }
+  if (current.status === "delivered") {
+    const error = new Error("A verified delivery cannot be changed through the admin status route");
+    error.code = "ORDER_ALREADY_DELIVERED";
+    throw error;
+  }
+
+  const order = await Order.findOneAndUpdate(
+    { _id: orderId, status: { $ne: "delivered" } },
+    {
+      $set: { status: normalizedStatus, updatedAt: new Date() },
+      ...(normalizedStatus === "cancelled"
+        ? buildDeliveryOtpCancellationUpdate()
+        : {}),
+    },
     { new: true, runValidators: true }
   );
 
   if (!order) {
+    const latest = await Order.findById(orderId).select("status").lean();
+    if (latest?.status === "delivered") {
+      const error = new Error("A verified delivery cannot be changed through the admin status route");
+      error.code = "ORDER_ALREADY_DELIVERED";
+      throw error;
+    }
     const error = new Error("Order not found");
     error.code = "ORDER_NOT_FOUND";
     throw error;
@@ -851,11 +1040,14 @@ const buildAdminOrdersCsv = async ({ search, status, paymentStatus, startDate, e
 
 module.exports = {
   createOrder,
+  toCustomerSafeOrder,
   getOrdersByUser,
   getOrderById,
   getCustomerOrderById,
   getOrderByRazorpayId,
   updateOrder,
+  markPaymentAsPaid,
+  markPaymentAsFailed,
   generateDeliveryOtp,
   verifyDeliveryOtp,
   initiateSupplierPayout,
@@ -865,4 +1057,5 @@ module.exports = {
   getAdminOrderById,
   updateAdminOrderStatus,
   buildAdminOrdersCsv,
+  getHappyClientsCount,
 };

@@ -132,7 +132,72 @@ function StatusBadge({ status, tone }) {
 const formatOrderDate = (value) => value ? new Date(value).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Not available";
 
 function IncomingOrdersSection({ orders, actionId, feedback, onAction }) {
-  return <section className="rounded-lg border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-100 px-4 py-4 sm:px-5"><h2 className="text-sm font-bold text-slate-800">Incoming Orders</h2><p className="mt-1 text-[11px] text-slate-500">Paid orders waiting for supplier confirmation.</p></div>{feedback ? <p className={`mx-4 mt-4 rounded-md border px-3 py-2 text-xs ${feedback.type === "success" ? "border-emerald-100 bg-emerald-50 text-emerald-700" : "border-red-100 bg-red-50 text-red-700"}`} role="status">{feedback.text}</p> : null}<div className="grid gap-4 p-4 sm:p-5">{orders.length === 0 ? <div className="py-10 text-center text-xs text-slate-500">No pending orders are waiting for action.</div> : orders.map((order) => { const busy = actionId === String(order._id); const address = order.deliveryAddress; return <article key={order._id} className="rounded-lg border border-slate-200 p-4 shadow-sm"><div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600">Order {order._id}</p><h3 className="mt-1 text-sm font-bold text-slate-900">{order.customer?.username || "Customer"}</h3><p className="mt-1 text-[11px] text-slate-500">{formatOrderDate(order.createdAt)}</p></div><StatusBadge status={order.status} tone="orange" /></div><div className="mt-4 grid gap-3 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4"><div><p className="text-[10px] uppercase tracking-wide text-slate-400">Bottle type</p><p className="mt-1 font-semibold text-slate-800">{order.bottleType}</p></div><div><p className="text-[10px] uppercase tracking-wide text-slate-400">Quantity</p><p className="mt-1 font-semibold text-slate-800">{Number(order.quantity).toLocaleString()} bottles</p></div><div><p className="text-[10px] uppercase tracking-wide text-slate-400">Order amount</p><p className="mt-1 font-semibold text-slate-800">₹{Number(order.pricing?.total || 0).toLocaleString("en-IN")}</p></div><div><p className="text-[10px] uppercase tracking-wide text-slate-400">Delivery location</p><p className="mt-1 font-semibold text-slate-800">{address ? [address.city, address.state].filter(Boolean).join(", ") : "Not available"}</p></div></div>{order.specialInstructions ? <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600"><span className="font-semibold text-slate-700">Customization:</span> {order.specialInstructions}</p> : null}<div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end"><button type="button" onClick={() => onAction(order._id, "cancelled")} disabled={busy} className="rounded-md border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:cursor-wait disabled:opacity-50">{busy ? "Updating..." : "Reject Order"}</button><button type="button" onClick={() => onAction(order._id, "accepted")} disabled={busy} className="rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-wait disabled:opacity-50">{busy ? "Updating..." : "Accept Order"}</button></div></article>; })}</div></section>;
+  const formatPaise = (amount) => `₹${(Number(amount || 0) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-100 px-4 py-4 sm:px-5">
+        <h2 className="text-sm font-bold text-slate-800">Incoming Orders</h2>
+        <p className="mt-1 text-[11px] text-slate-500">Paid orders waiting for supplier confirmation.</p>
+      </div>
+      {feedback ? <p className={`mx-4 mt-4 rounded-md border px-3 py-2 text-xs ${feedback.type === "success" ? "border-emerald-100 bg-emerald-50 text-emerald-700" : "border-red-100 bg-red-50 text-red-700"}`} role="status">{feedback.text}</p> : null}
+      <div className="grid gap-4 p-4 sm:p-5">
+        {orders.length === 0 ? <div className="py-10 text-center text-xs text-slate-500">No pending orders are waiting for action.</div> : orders.map((order) => {
+          const busy = actionId === String(order._id);
+          const supplierItems = order.supplierPricing?.items || [];
+          return (
+            <article key={order._id} className="rounded-lg border border-slate-200 p-4 shadow-sm">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600">Order {order._id}</p>
+                  <h3 className="mt-1 text-sm font-bold text-slate-900">{order.customer?.username || "Customer"}</h3>
+                  <p className="mt-1 text-[11px] text-slate-500">{formatOrderDate(order.createdAt)}</p>
+                </div>
+                <StatusBadge status={order.status} tone="orange" />
+              </div>
+              <div className="mt-4 grid gap-3 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Bottle type</p>
+                  <p className="mt-1 font-semibold text-slate-800">{order.bottleType}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Quantity</p>
+                  <p className="mt-1 font-semibold text-slate-800">{Number(order.quantity).toLocaleString()} bottles</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Delivery location</p>
+                  <p className="mt-1 font-semibold text-slate-800">{order.deliveryAddress ? [order.deliveryAddress.city, order.deliveryAddress.state].filter(Boolean).join(", ") : "Not available"}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Supplier bottle subtotal (not payout)</p>
+                  <p className="mt-1 font-semibold text-slate-800">{formatPaise(order.supplierPricing?.subtotalPaise)}</p>
+                </div>
+              </div>
+              {supplierItems.length ? (
+                <div className="mt-3 rounded-md bg-slate-50 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Supplier bottle cost breakdown</p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {supplierItems.map((item, index) => (
+                      <div key={`${item.bottleType}-${index}`} className="text-[11px] text-slate-700">
+                        <p className="font-semibold">{item.bottleType}: {Number(item.quantity).toLocaleString()} bottles</p>
+                        <p>{formatPaise(item.unitCostPaise)} per bottle · subtotal {formatPaise(item.subtotalPaise)}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-[10px] text-slate-500">Bottle cost only; excludes customer shipping and is not a completed supplier payout.</p>
+                </div>
+              ) : null}
+              {order.specialInstructions ? <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600"><span className="font-semibold text-slate-700">Customization:</span> {order.specialInstructions}</p> : null}
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button type="button" onClick={() => onAction(order._id, "cancelled")} disabled={busy} className="rounded-md border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:cursor-wait disabled:opacity-50">{busy ? "Updating..." : "Reject Order"}</button>
+                <button type="button" onClick={() => onAction(order._id, "accepted")} disabled={busy} className="rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-wait disabled:opacity-50">{busy ? "Updating..." : "Accept Order"}</button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 function OrdersTable({ orders = [], onViewAll }) {
@@ -337,7 +402,7 @@ export default function SupplierLandingPage() {
     { label: "Total Orders", value: stats.totalOrders, caption: "All Orders", icon: ShoppingBag, tone: "blue", link: "View all", path: "/supplier-orders" },
     { label: "Pending Orders", value: stats.pendingOrders, caption: "Current Orders", icon: Package, tone: "orange", link: "View all", path: "/supplier-orders?status=pending" },
     { label: "Completed Orders", value: stats.completedOrders, caption: "Delivered Orders", icon: ClipboardList, tone: "green", link: "View all", path: "/supplier-orders?status=delivered" },
-    { label: "Total Earnings", value: `₹${Number(stats.totalEarnings).toLocaleString()}`, caption: "Completed Orders", icon: Wallet, tone: "purple", link: "View details", path: "/supplier-earnings" },
+    { label: "Settled Supplier Payouts", value: new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(stats.totalEarnings || 0)), caption: "Transferred to you", icon: Wallet, tone: "purple", link: "View details", path: "/supplier-earnings" },
   ];
   const handleProfileSaved = (updatedSupplier) => {
     setDashboard((current) => current ? { ...current, supplier: updatedSupplier } : current);

@@ -15,6 +15,7 @@ const adminRoutes = require('./Routes/adminRoutes');
 const customerRoutes = require('./Routes/customerRoutes');
 const orderRoutes = require('./Routes/orderroutes');
 const addressRoutes = require('./Routes/addressRoutes');
+const statsRoutes = require('./Routes/statsRoutes');
 
 const uploadsDirectory = path.resolve(__dirname, 'uploads');
 fs.mkdirSync(uploadsDirectory, { recursive: true });
@@ -41,6 +42,7 @@ app.use(cors({
 }));
 
 connectDB();
+app.use("/api/orders/payment/webhook", express.raw({ type: "application/json", limit: "1mb" }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -57,5 +59,6 @@ app.use('/api/customers', customerRoutes);
 app.use('/uploads', express.static(uploadsDirectory));
 app.use('/api/orders', orderRoutes);
 app.use('/api/addresses', addressRoutes);
+app.use('/api/stats', statsRoutes);
 
 module.exports = app;

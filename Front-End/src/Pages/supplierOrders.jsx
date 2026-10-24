@@ -106,6 +106,12 @@ function formatDate(dateValue) {
   return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(date);
 }
 
+function formatPaise(value) {
+  const amount = Number(value);
+  if (!Number.isSafeInteger(amount)) return "Not available";
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(amount / 100);
+}
+
 function SummaryCard({ title, value, subtitle, icon: Icon, tone }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
@@ -140,8 +146,6 @@ function OrderDetails({ order, onClose, onStatusUpdated, token }) {
   if (!order) return null;
 
   const customerName = order.customer?.username || order.customer?.fullName || "Customer";
-  const customerEmail = order.customer?.email || order.customerEmail || "Not available";
-  const delivery = order.deliveryAddress || {};
   const currentStatus = order.status || "pending";
   const nextAction = getNextStatusAction(currentStatus);
   const paymentComplete = ["paid", "captured"].includes(order.paymentStatus);
@@ -282,9 +286,14 @@ function OrderDetails({ order, onClose, onStatusUpdated, token }) {
               ["Expected delivery", order.expectedDelivery ? formatDate(order.expectedDelivery) : "Not available"],
               ["Current status", formatStatus(order.status)],
               ["Payment status", order.paymentStatus || "Not available"],
-              ["Subtotal", `₹${Number(order.pricing?.subtotal || 0).toLocaleString("en-IN")}`],
-              ["Shipping", `₹${Number(order.pricing?.shipping || 0).toLocaleString("en-IN")}`],
-              ["Total", `₹${Number(order.pricing?.total || 0).toLocaleString("en-IN")}`],
+              ["Customer order subtotal", `₹${Number(order.pricing?.subtotal || 0).toLocaleString("en-IN")}`],
+              ["Customer shipping", `₹${Number(order.pricing?.shipping || 0).toLocaleString("en-IN")}`],
+              ["Customer order total", `₹${Number(order.pricing?.total || 0).toLocaleString("en-IN")}`],
+              ...(order.supplierPricing?.items || []).flatMap((item) => [
+                [`${item.bottleType} supplier unit cost`, formatPaise(item.unitCostPaise)],
+                [`${item.bottleType} supplier subtotal`, formatPaise(item.subtotalPaise)],
+              ]),
+              ...(order.supplierPricing ? [["Supplier bottle subtotal", formatPaise(order.supplierPricing.subtotalPaise)]] : []),
               ["Customer instructions", order.specialInstructions || order.customerInstructions || "No special instructions"],
             ].map(([label, value]) => (
               <div key={label} className="border-b border-slate-100 pb-2">
@@ -300,28 +309,7 @@ function OrderDetails({ order, onClose, onStatusUpdated, token }) {
             </div>
             {[
               ["Customer name", customerName],
-              ["Customer email", customerEmail],
-              ["Customer mobile", delivery.phoneNumber || order.customer?.phoneNumber || "Not available"],
-            ].map(([label, value]) => (
-              <div key={label} className="border-b border-slate-100 pb-2">
-                <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{label}</p>
-                <p className="mt-1 text-sm font-medium text-slate-800">{value}</p>
-              </div>
-            ))}
-
-            <div className="pt-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Delivery address</p>
-            </div>
-            {[
-              ["Full name", delivery.fullName || customerName],
-              ["Phone number", delivery.phoneNumber || "Not available"],
-              ["Address line 1", delivery.addressLine1 || "Not available"],
-              ["Address line 2", delivery.addressLine2 || "Not available"],
-              ["City", delivery.city || "Not available"],
-              ["State", delivery.state || "Not available"],
-              ["Pincode", delivery.pincode || "Not available"],
-              ["Country", delivery.country || "Not available"],
-              ["Delivery instructions", delivery.deliveryInstructions || "No delivery instructions"],
+              ["Customer mobile", order.customer?.phoneNumber || "Not available"],
             ].map(([label, value]) => (
               <div key={label} className="border-b border-slate-100 pb-2">
                 <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{label}</p>
@@ -482,7 +470,7 @@ export default function SupplierOrders() {
       const statusLabel = formatStatus(order.status);
       const matchesTab = activeTab === "All Orders" || statusLabel === activeTab;
       const matchesStatus = filterStatus === "All statuses" || statusLabel === filterStatus;
-      const searchableText = [order._id, order.customer?.username, order.customer?.email, order.bottleType].filter(Boolean).join(" ").toLowerCase();
+      const searchableText = [order._id, order.customer?.username, order.bottleType].filter(Boolean).join(" ").toLowerCase();
       const matchesSearch = !query || searchableText.includes(query);
       return matchesTab && matchesStatus && matchesSearch;
     });
@@ -628,7 +616,7 @@ export default function SupplierOrders() {
                   <th className="px-3 py-3 font-medium">Quantity</th>
                   <th className="px-3 py-3 font-medium">Order date</th>
                   <th className="px-3 py-3 font-medium">Status</th>
-                  <th className="px-3 py-3 font-medium">Amount</th>
+                  <th className="px-3 py-3 font-medium">Customer total</th>
                   <th className="px-5 py-3 text-right font-medium">Action</th>
                 </tr>
               </thead>
@@ -640,7 +628,6 @@ export default function SupplierOrders() {
                       <td className="px-5 py-4 text-xs font-semibold text-blue-600">{order._id}</td>
                       <td className="px-3 py-4">
                         <p className="text-xs font-semibold text-slate-800">{order.customer?.username || "Customer"}</p>
-                        <p className="mt-1 text-[10px] text-slate-400">{order.customer?.email || "No email"}</p>
                       </td>
                       <td className="px-3 py-4">
                         <p className="text-xs font-medium text-slate-700">{order.bottleType || "Bottle Order"}</p>

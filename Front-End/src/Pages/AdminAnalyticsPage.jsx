@@ -401,7 +401,7 @@ export default function AdminAnalyticsPage() {
         setLoading(false);
       }
     },
-    [token, range, customStart, customEnd]
+    [token, range, customStart, customEnd, navigate]
   );
 
   useEffect(() => {
@@ -409,7 +409,16 @@ export default function AdminAnalyticsPage() {
       navigate("/admin/login", { replace: true });
       return;
     }
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") fetchAnalytics(range, customStart, customEnd);
+    };
     fetchAnalytics(range, customStart, customEnd);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("focus", refreshWhenVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("focus", refreshWhenVisible);
+    };
   }, [token, range, customStart, customEnd, fetchAnalytics, navigate]);
 
   const handleRangeChange = (newRange) => {

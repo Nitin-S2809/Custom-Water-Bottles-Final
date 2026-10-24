@@ -8,7 +8,6 @@ import {
   Circle,
   Clock3,
   CreditCard,
-  MapPin,
   Package,
   RefreshCw,
   ShieldCheck,
@@ -55,7 +54,7 @@ const UNAUTHORIZED = "unauthorized";
 function formatMoney(value, currency = "INR") {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return "Not available";
-  return new Intl.NumberFormat("en-IN", { style: "currency", currency, maximumFractionDigits: 2 }).format(amount);
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 }
 
 function formatDate(value) {
@@ -67,19 +66,6 @@ function formatDate(value) {
 
 function formatStatusLabel(status) {
   return STATUS_LABELS[status] || String(status || "pending").replace(/-/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function getAddressText(address) {
-  if (!address) return "Address not available";
-  return [
-    address.fullName,
-    address.addressLine1,
-    address.addressLine2,
-    [address.city, address.state].filter(Boolean).join(", "),
-    address.pincode,
-    address.country,
-    address.deliveryInstructions,
-  ].filter(Boolean).join(" · ");
 }
 
 function useToast() {
@@ -401,9 +387,6 @@ export default function SupplierOrderDetails({
     }
   };
 
-  const deliveryAddress = order?.deliveryAddress || {};
-  const firstAddressLine = [deliveryAddress.addressLine1, deliveryAddress.addressLine2].filter(Boolean).join(", ");
-  const fullAddress = getAddressText(deliveryAddress);
   const paymentComplete = ["paid", "captured"].includes(order?.paymentStatus);
   const canGenerateOtp = currentStatus === "out-for-delivery" && !order?.deliveryOtpVerifiedAt && paymentComplete;
   const canPayout = order?.status === "delivered" && paymentComplete && Boolean(order?.deliveryOtpVerifiedAt) && !["processed", "processing"].includes(order?.supplierPayoutStatus);
@@ -503,9 +486,13 @@ export default function SupplierOrderDetails({
               <DetailItem label="Bottle size" value={order.bottleType || "Not available"} />
               <DetailItem label="Quantity" value={`${summaryValues.quantity.toLocaleString("en-IN")} units`} />
               <DetailItem label="Price" value={formatMoney(order.pricing?.unitPrice || 0)} />
-              <DetailItem label="Subtotal" value={formatMoney(summaryValues.subtotal)} />
-              <DetailItem label="Shipping" value={formatMoney(summaryValues.shipping)} />
-              <DetailItem label="Total amount" value={formatMoney(summaryValues.total)} />
+              <DetailItem label="Customer order subtotal" value={formatMoney(summaryValues.subtotal)} />
+              <DetailItem label="Customer shipping" value={formatMoney(summaryValues.shipping)} />
+              <DetailItem label="Customer order total" value={formatMoney(summaryValues.total)} />
+              {(order.supplierPricing?.items || []).map((item) => (
+                <DetailItem key={`${item.bottleType}-supplier-cost`} label={`${item.bottleType} supplier unit cost`} value={formatMoney(Number(item.unitCostPaise) / 100)} />
+              ))}
+              {order.supplierPricing ? <DetailItem label="Supplier bottle subtotal" value={formatMoney(Number(order.supplierPricing.subtotalPaise) / 100)} /> : null}
               <DetailItem label="Order date" value={formatDate(order.createdAt)} />
               <DetailItem label="Expected delivery" value={order.expectedDelivery ? formatDate(order.expectedDelivery) : "Not available"} />
               <DetailItem label="Payment status" value={order.paymentStatus ? formatStatusLabel(order.paymentStatus) : "Not available"} />
@@ -527,17 +514,8 @@ export default function SupplierOrderDetails({
 
             <dl className="mt-5 space-y-4">
               <DetailItem label="Name" value={order.customer?.username || order.customer?.fullName || "Not available"} />
-              <DetailItem label="Email" value={order.customer?.email || deliveryAddress.email || "Not available"} />
-              <DetailItem label="Mobile" value={deliveryAddress.phoneNumber || order.customer?.phoneNumber || "Not available"} />
+              <DetailItem label="Mobile" value={order.customer?.phoneNumber || "Not available"} />
             </dl>
-
-            <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-800">
-                <MapPin size={15} className="text-blue-600" /> Delivery address
-              </div>
-              <p className="text-sm leading-6 text-slate-700">{fullAddress}</p>
-              {firstAddressLine ? <p className="mt-2 text-xs text-slate-500">{firstAddressLine}</p> : null}
-            </div>
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">

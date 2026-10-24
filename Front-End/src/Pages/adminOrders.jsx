@@ -330,7 +330,16 @@ export default function AdminOrdersPage() {
     };
 
     fetchOrders();
-    return () => controller.abort();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") fetchOrders();
+    };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("focus", fetchOrders);
+    return () => {
+      controller.abort();
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("focus", fetchOrders);
+    };
   }, [token, role, navigate, search, statusFilter, paymentFilter, dateFilter, customStartDate, customEndDate, sortBy, page]);
 
   useEffect(() => {

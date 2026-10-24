@@ -2,8 +2,12 @@ const Supplier = require("../MODELS/supplier");
 const Order = require("../MODELS/orderModel");
 const SupportRequest = require("../MODELS/supportRequest");
 const User = require("../MODELS/usermodel");
+const Address = require("../MODELS/addressModel");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const { calculateSupplierPricing } = require("./supplierPricingService");
+const { toSupplierSafeOrder } = require("./supplierOrderPrivacy");
+const { buildDeliveryOtpCancellationUpdate } = require("./deliveryOtpPolicy");
 
 const ALLOWED_STATUS_TRANSITIONS = {
     accepted: ["pending"],
@@ -12,6 +16,14 @@ const ALLOWED_STATUS_TRANSITIONS = {
     ready: ["in-production"],
     shipped: ["ready"],
     "out-for-delivery": ["shipped"],
+};
+
+const getSupplierPayoutAmountPaise = (order) => {
+    if (Number.isSafeInteger(order.supplierPayoutAmountPaise)) {
+        return order.supplierPayoutAmountPaise;
+    }
+    const legacyAmountPaise = Math.round(Number(order.supplierPayoutAmount || 0) * 100);
+    return Number.isSafeInteger(legacyAmountPaise) ? legacyAmountPaise : 0;
 };
 
 const createSupplier = async ({ supplierData }) => {
@@ -132,22 +144,32 @@ const getSupplierSupportContact = async () => {
 };
 
 const getSupplierInvoices = async (supplierId) => {
-    const orders = await Order.find({ supplierId }).sort({ createdAt: -1 }).lean();
-    const toStatus = (status) => status === "delivered" ? "Paid" : status === "cancelled" ? "Failed" : "Pending";
+    const foundOrders = await Order.find({ supplierId }).select("+supplierPricing").sort({ createdAt: -1 }).lean();
+    const orders = await Promise.all(foundOrders.map(ensureSupplierPricingSnapshot));
+    const payoutStatusLabel = (status) => ({
+        processed: "Paid",
+        processing: "Processing",
+        initiating: "Initiating — reconciliation required",
+        failed: "Failed",
+        pending: "Pending",
+        not_eligible: "Not Eligible",
+    }[status] || "Pending");
     const invoices = orders.map((order) => ({
         invoiceId: `INV-${String(order._id).slice(-8).toUpperCase()}`,
         orderId: String(order._id),
         date: order.createdAt,
-        amount: Number(order.pricing?.total || 0),
-        status: toStatus(order.status),
+        amount: Number(order.supplierPricing?.subtotalPaise || 0) / 100,
+        amountType: "supplier_bottle_cost",
+        status: payoutStatusLabel(order.supplierPayoutStatus),
     }));
-    const payments = orders.filter((order) => order.status !== "cancelled").map((order) => ({
+    const payments = orders.filter((order) => ["initiating", "processing", "processed", "failed"].includes(order.supplierPayoutStatus)).map((order) => ({
         paymentId: `PAY-${String(order._id).slice(-8).toUpperCase()}`,
         orderId: String(order._id),
-        date: order.createdAt,
-        amount: Number(order.pricing?.total || 0),
-        status: order.status === "delivered" ? "Paid" : "Pending",
-        paymentMethod: "Not recorded",
+        date: order.supplierPayoutCompletedAt || order.supplierPayoutInitiatedAt || order.createdAt,
+        amount: getSupplierPayoutAmountPaise(order) / 100,
+        amountType: "supplier_settlement",
+        status: payoutStatusLabel(order.supplierPayoutStatus),
+        paymentMethod: order.supplierPayoutId ? "Razorpay transfer" : "Not recorded",
     }));
 
     return { invoices, payments };
@@ -165,29 +187,53 @@ const resolveSupplier = async (supplierId) => {
     return supplier;
 };
 
-const enrichOrdersWithCustomerData = async (orders = []) => {
-    const customerIds = [...new Set(orders.map((order) => String(order.userId)).filter(Boolean))];
+const ensureSupplierPricingSnapshot = async (order) => {
+    if (order.supplierPricing) return order;
+
+    const supplierPricing = calculateSupplierPricing(order);
+    await Order.updateOne(
+        { _id: order._id, supplierId: order.supplierId, supplierPricing: { $exists: false } },
+        { $set: { supplierPricing } }
+    );
+    return { ...order, supplierPricing };
+};
+
+const enrichOrdersWithCustomerData = async (orders = [], supplierId) => {
+    const preparedOrders = await Promise.all(orders.map((order) => (
+        order.supplierId
+            ? ensureSupplierPricingSnapshot(order)
+            : order.supplierPricing
+                ? order
+                : { ...order, supplierPricing: calculateSupplierPricing(order) }
+    )));
+    const assignedOrders = preparedOrders.filter(
+        (order) => String(order.supplierId || "") === String(supplierId)
+    );
+    const customerIds = [...new Set(assignedOrders.map((order) => String(order.userId)).filter(Boolean))];
 
     if (!customerIds.length) {
-        return orders.map((order) => ({
-            ...order,
+        return preparedOrders.map((order) => ({
+            ...toSupplierSafeOrder(order),
             customer: null,
-            deliveryAddress: null,
         }));
     }
 
     const [customers, addresses] = await Promise.all([
-        require("../MODELS/usermodel").find({ _id: { $in: customerIds } }).select("username email").lean(),
-        require("../MODELS/addressModel").find({ userId: { $in: customerIds } }).select("userId fullName phoneNumber email addressLine1 addressLine2 city state pincode country deliveryInstructions").lean(),
+        User.find({ _id: { $in: customerIds } }).select("username").lean(),
+        Address.find({ userId: { $in: customerIds } }).select("userId phoneNumber").lean(),
     ]);
 
     const customersById = new Map(customers.map((customer) => [String(customer._id), customer]));
     const addressesByUserId = new Map(addresses.map((address) => [String(address.userId), address]));
 
-    return orders.map((order) => ({
-        ...order,
-        customer: customersById.get(String(order.userId)) || null,
-        deliveryAddress: addressesByUserId.get(String(order.userId)) || null,
+    return preparedOrders.map((order) => ({
+        ...toSupplierSafeOrder(order),
+        customer: String(order.supplierId || "") === String(supplierId)
+            ? {
+                ...(customersById.get(String(order.userId)) || {}),
+                phoneNumber: addressesByUserId.get(String(order.userId))?.phoneNumber || null,
+            }
+            : null,
     }));
 };
 
@@ -407,17 +453,17 @@ const getSupplierDashboard = async (supplierId) => {
     const supplier = await resolveSupplier(supplierId);
 
     const [orders, incomingOrders] = await Promise.all([
-        Order.find({ supplierId }).sort({ createdAt: -1 }).lean(),
+        Order.find({ supplierId }).select("+supplierPricing").sort({ createdAt: -1 }).lean(),
         Order.find({
             status: "pending",
-            paymentStatus: "paid",
+            paymentStatus: { $in: ["paid", "captured"] },
             supplierId: null,
-        }).sort({ createdAt: -1 }).lean(),
+        }).select("+supplierPricing").sort({ createdAt: -1 }).lean(),
     ]);
 
     const [enrichedOrders, enrichedIncomingOrders] = await Promise.all([
-        enrichOrdersWithCustomerData(orders),
-        enrichOrdersWithCustomerData(incomingOrders),
+        enrichOrdersWithCustomerData(orders, supplierId),
+        enrichOrdersWithCustomerData(incomingOrders, supplierId),
     ]);
 
     const completedOrders = orders.filter((order) => order.status === "delivered");
@@ -460,10 +506,9 @@ const getSupplierDashboard = async (supplierId) => {
             pendingOrders: pendingOrders.length,
             completedOrders: completedOrders.length,
             cancelledOrders: cancelledOrders.length,
-            totalEarnings: completedOrders.reduce(
-                (total, order) => total + Number(order.pricing?.total || 0),
-                0
-            ),
+            totalEarnings: completedOrders
+                .filter((order) => order.supplierPayoutStatus === "processed")
+                .reduce((total, order) => total + getSupplierPayoutAmountPaise(order), 0) / 100,
         },
         profileCompletion,
         recentOrders: enrichedOrders.slice(0, 5),
@@ -475,8 +520,8 @@ const getSupplierDashboard = async (supplierId) => {
 
 const getSupplierOrders = async (supplierId) => {
     const supplier = await resolveSupplier(supplierId);
-    const orders = await Order.find({ supplierId }).sort({ createdAt: -1 }).lean();
-    const enrichedOrders = await enrichOrdersWithCustomerData(orders);
+    const orders = await Order.find({ supplierId }).select("+supplierPricing").sort({ createdAt: -1 }).lean();
+    const enrichedOrders = await enrichOrdersWithCustomerData(orders, supplierId);
 
     return {
         supplier: {
@@ -498,7 +543,7 @@ const getSupplierOrders = async (supplierId) => {
 
 const getSupplierOrderById = async ({ supplierId, orderId }) => {
     const supplier = await resolveSupplier(supplierId);
-    const order = await Order.findOne({ _id: orderId, supplierId }).lean();
+    const order = await Order.findOne({ _id: orderId, supplierId }).select("+supplierPricing").lean();
 
     if (!order) {
         const error = new Error("Order not found");
@@ -506,9 +551,10 @@ const getSupplierOrderById = async ({ supplierId, orderId }) => {
         throw error;
     }
 
-    const [customer, deliveryAddress] = await Promise.all([
-        require("../MODELS/usermodel").findById(order.userId).select("username email").lean(),
-        require("../MODELS/addressModel").findOne({ userId: order.userId }).select("userId fullName phoneNumber email addressLine1 addressLine2 city state pincode country deliveryInstructions").lean(),
+    const preparedOrder = await ensureSupplierPricingSnapshot(order);
+    const [customer, deliveryContact] = await Promise.all([
+        User.findById(order.userId).select("username").lean(),
+        Address.findOne({ userId: order.userId }).select("userId phoneNumber").lean(),
     ]);
 
     return {
@@ -517,9 +563,11 @@ const getSupplierOrderById = async ({ supplierId, orderId }) => {
             companyName: supplier.companyName,
         },
         order: {
-            ...order,
-            customer: customer || null,
-            deliveryAddress: deliveryAddress || null,
+            ...toSupplierSafeOrder(preparedOrder),
+            customer: {
+                ...(customer || {}),
+                phoneNumber: deliveryContact?.phoneNumber || null,
+            },
         },
     };
 };
@@ -541,22 +589,36 @@ const updateSupplierOrderStatus = async ({ supplierId, orderId, status }) => {
     const ownership = status === "accepted" || status === "cancelled"
         ? { $or: [{ supplierId: null }, { supplierId }] }
         : { supplierId };
-    const order = await Order.findOneAndUpdate(
-        {
-            _id: orderId,
-            paymentStatus: { $in: ["paid", "captured"] },
-            status: { $in: previousStatuses[status] },
-            ...ownership,
-        },
+    const filter = {
+        _id: orderId,
+        paymentStatus: { $in: ["paid", "captured"] },
+        status: { $in: previousStatuses[status] },
+        ...ownership,
+    };
+    const candidate = await Order.findOne(filter).select("+supplierPricing").lean();
+    const isAssignedOrder = candidate && (
+        String(candidate.supplierId || "") === String(supplierId) || status === "accepted"
+    );
+    const supplierPricing = isAssignedOrder
+        ? candidate.supplierPricing || calculateSupplierPricing(candidate)
+        : null;
+    const updateQuery = Order.findOneAndUpdate(
+        filter,
         {
             $set: {
                 status,
                 deliveryStatus: status === "ready" ? "ready" : status === "shipped" ? "shipped" : status === "out-for-delivery" ? "out-for-delivery" : "pending",
                 ...(status === "accepted" ? { supplierId } : {}),
+                ...(supplierPricing ? { supplierPricing } : {}),
             },
+            ...(status === "cancelled"
+                ? buildDeliveryOtpCancellationUpdate()
+                : {}),
         },
         { new: true, runValidators: true }
     ).lean();
+    if (supplierPricing) updateQuery.select("+supplierPricing");
+    const order = await updateQuery;
 
     if (!order) {
         const error = new Error("Order is no longer available for this action");
@@ -564,7 +626,7 @@ const updateSupplierOrderStatus = async ({ supplierId, orderId, status }) => {
         throw error;
     }
 
-    return order;
+    return toSupplierSafeOrder(order);
 };
 
 const getSupplierEarnings = async ({ supplierId, months = 6 }) => {
@@ -572,45 +634,50 @@ const getSupplierEarnings = async ({ supplierId, months = 6 }) => {
     const now = new Date();
     const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const chartStart = new Date(now.getFullYear(), now.getMonth() - monthCount + 1, 1);
-    const orders = await Order.find({ supplierId }).sort({ createdAt: -1 }).lean();
-    const completedOrders = orders.filter((order) => order.status === "delivered");
-    const pendingOrders = orders.filter((order) => [
-        "pending",
-        "accepted",
-        "in-production",
-        "ready",
-    ].includes(order.status));
-    const totalEarnings = completedOrders.reduce((total, order) => total + Number(order.pricing?.total || 0), 0);
-    const currentMonthEarnings = completedOrders
-        .filter((order) => new Date(order.createdAt) >= currentMonthStart)
-        .reduce((total, order) => total + Number(order.pricing?.total || 0), 0);
+    const foundOrders = await Order.find({ supplierId }).select("+supplierPricing").sort({ createdAt: -1 }).lean();
+    const orders = await Promise.all(foundOrders.map(ensureSupplierPricingSnapshot));
+    const settledOrders = orders.filter((order) => order.supplierPayoutStatus === "processed");
+    const pendingOrders = orders.filter((order) => order.supplierPayoutStatus === "pending");
+    const totalEarnings = settledOrders.reduce((total, order) => total + getSupplierPayoutAmountPaise(order), 0) / 100;
+    const currentMonthEarnings = settledOrders
+        .filter((order) => new Date(order.supplierPayoutCompletedAt || order.supplierPayoutInitiatedAt || order.createdAt) >= currentMonthStart)
+        .reduce((total, order) => total + getSupplierPayoutAmountPaise(order), 0) / 100;
     const monthlyEarnings = Array.from({ length: monthCount }, (_, index) => {
         const monthDate = new Date(chartStart.getFullYear(), chartStart.getMonth() + index, 1);
         const nextMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 1);
-        const value = completedOrders
+        const value = settledOrders
             .filter((order) => {
-                const createdAt = new Date(order.createdAt);
+                const createdAt = new Date(order.supplierPayoutCompletedAt || order.supplierPayoutInitiatedAt || order.createdAt);
                 return createdAt >= monthDate && createdAt < nextMonth;
             })
-            .reduce((total, order) => total + Number(order.pricing?.total || 0), 0);
+            .reduce((total, order) => total + getSupplierPayoutAmountPaise(order), 0) / 100;
 
         return {
             label: monthDate.toLocaleString("en-US", { month: "short" }),
             value,
         };
     });
-    const transactions = completedOrders.slice(0, 10).map((order) => ({
-        date: new Date(order.createdAt).toLocaleDateString("en-IN"),
+    const transactions = orders
+        .filter((order) => ["initiating", "processing", "processed", "failed"].includes(order.supplierPayoutStatus))
+        .slice(0, 10)
+        .map((order) => ({
+        date: new Date(order.supplierPayoutCompletedAt || order.supplierPayoutInitiatedAt || order.createdAt).toLocaleDateString("en-IN"),
         orderId: String(order._id),
-        amount: Number(order.pricing?.total || 0),
-        status: "Delivered",
-        paymentMode: "Not recorded",
+        amount: getSupplierPayoutAmountPaise(order) / 100,
+        status: order.supplierPayoutStatus === "processed"
+            ? "Paid"
+            : order.supplierPayoutStatus === "failed"
+                ? "Failed"
+                : order.supplierPayoutStatus === "initiating"
+                    ? "Initiating — reconciliation required"
+                    : "Processing",
+        paymentMode: order.supplierPayoutId ? "Razorpay transfer" : "Not recorded",
     }));
 
     return {
         totalEarnings,
         currentMonthEarnings,
-        pendingPayments: pendingOrders.reduce((total, order) => total + Number(order.pricing?.total || 0), 0),
+        pendingPayments: pendingOrders.reduce((total, order) => total + Number(order.supplierPricing?.subtotalPaise || 0), 0) / 100,
         currentMonthLabel: now.toLocaleString("en-US", { month: "long", year: "numeric" }),
         monthlyEarnings,
         transactions,
@@ -639,4 +706,3 @@ module.exports = {
     getSupplierByIdForAdmin,
     removeSupplierAccount,
 };
-

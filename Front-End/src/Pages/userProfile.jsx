@@ -26,6 +26,34 @@ export default function UserProfile() {
       .catch(() => setStatus("error"));
   }, [isAuthenticated, token, user?._id]);
 
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+
+    let mounted = true;
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        fetch(`${import.meta.env.VITE_API_URL}/api/orders/user/${user._id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Unable to load orders."))))
+          .then((data) => {
+            if (mounted) setOrders(Array.isArray(data.orders) ? data.orders : []);
+          })
+          .catch(() => {
+            if (mounted) setStatus("error");
+          });
+      }
+    };
+
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("focus", refreshWhenVisible);
+    return () => {
+      mounted = false;
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("focus", refreshWhenVisible);
+    };
+  }, [isAuthenticated, token, user?._id]);
+
   if (!isAuthenticated) {
     return <main className="mx-auto max-w-3xl px-4 py-16 text-center"><h1 className="text-3xl font-semibold text-slate-900">Sign in to view your orders</h1><button type="button" onClick={() => navigate("/login")} className="mt-6 rounded-full bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700">Go to Login</button></main>;
   }

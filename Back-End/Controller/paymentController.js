@@ -1,6 +1,10 @@
 const crypto = require("crypto");
 const Razorpay = require("razorpay");
 const orderService = require("../Services/orderService");
+const {
+  parseRazorpayWebhookPayload,
+  verifyRazorpayWebhookSignature,
+} = require("../Services/razorpayWebhook");
 const { calculatePrice, calculateCartPrice } = require("../Services/pricingService");
 const { isValidBottleType } = require("../config/pricingConfig");
 
@@ -80,6 +84,8 @@ const createPaymentOrder = async (req, res) => {
     });
   }
 
+  let localOrder;
+
   try {
     const razorpayClient = getRazorpayClient();
     const rawItems = req.body?.items;
@@ -140,6 +146,7 @@ const createPaymentOrder = async (req, res) => {
         },
         paymentMethod: paymentMethod || "",
         paymentStatus: "pending",
+        paymentOrderStatus: "creating",
         currency: "INR",
       };
     } else {
@@ -177,6 +184,7 @@ const createPaymentOrder = async (req, res) => {
         },
         paymentMethod: paymentMethod || "",
         paymentStatus: "pending",
+        paymentOrderStatus: "creating",
         currency: "INR",
       };
     }
@@ -189,7 +197,7 @@ const createPaymentOrder = async (req, res) => {
       });
     }
 
-    const localOrder = await orderService.createOrder(orderPayload);
+    localOrder = await orderService.createOrder(orderPayload);
     const razorpayOrder = await razorpayClient.orders.create({
       amount: amountPaise,
       currency: "INR",
@@ -199,11 +207,12 @@ const createPaymentOrder = async (req, res) => {
 
     const updatedOrder = await orderService.updateOrder(localOrder._id, {
       razorpayOrderId: razorpayOrder.id,
+      paymentOrderStatus: "ready",
     });
 
     return res.status(201).json({
       success: true,
-      order: updatedOrder,
+      order: orderService.toCustomerSafeOrder(updatedOrder),
       razorpay: {
         keyId: process.env.RAZORPAY_KEY_ID,
         orderId: razorpayOrder.id,
@@ -212,6 +221,19 @@ const createPaymentOrder = async (req, res) => {
       },
     });
   } catch (error) {
+    if (localOrder) {
+      try {
+        await orderService.updateOrder(localOrder._id, {
+          paymentOrderStatus: "unconfirmed",
+        });
+      } catch (stateError) {
+        console.error(
+          "Unable to flag unconfirmed Razorpay order creation",
+          stateError.code || stateError.name || "UnknownError"
+        );
+      }
+    }
+
     const responseStatus = readDiagnosticProperty(
       readDiagnosticProperty(error, "response"),
       "status"
@@ -252,6 +274,12 @@ const createPaymentOrder = async (req, res) => {
     return res.status(statusCode).json({
       success: false,
       message,
+      ...(localOrder
+        ? {
+            orderId: String(localOrder._id),
+            paymentOrderStatus: "unconfirmed",
+          }
+        : {}),
     });
   }
 };
@@ -310,22 +338,18 @@ const verifyPayment = async (req, res) => {
       );
 
     if (!signaturesMatch) {
-      await orderService.updateOrder(order._id, { paymentStatus: "failed" });
       return res.status(400).json({ success: false, message: "Invalid payment signature" });
     }
 
-    const paidOrder = await orderService.updateOrder(order._id, {
-      paymentStatus: "paid",
-      status: "pending",
+    const paidOrder = await orderService.markPaymentAsPaid(order._id, {
       razorpayPaymentId,
       razorpaySignature,
-      paidAt: new Date(),
     });
 
     return res.status(200).json({
       success: true,
       message: "Payment verified successfully",
-      order: paidOrder,
+      order: orderService.toCustomerSafeOrder(paidOrder),
     });
   } catch (error) {
     console.error("Payment verification error:", error.message);
@@ -334,36 +358,61 @@ const verifyPayment = async (req, res) => {
 };
 
 const handleRazorpayWebhook = async (req, res) => {
+  if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
+    return res.status(503).json({ success: false, message: "Razorpay webhook secret is not configured" });
+  }
+
+  const signature = req.headers["x-razorpay-signature"];
+  if (!verifyRazorpayWebhookSignature(req.body, signature, process.env.RAZORPAY_WEBHOOK_SECRET)) {
+    return res.status(400).json({ success: false, message: "Invalid Razorpay webhook signature" });
+  }
+
+  let payload;
   try {
-    const signature = req.headers["x-razorpay-signature"];
-    const payload = req.body;
+    payload = parseRazorpayWebhookPayload(req.body);
+  } catch {
+    return res.status(400).json({ success: false, message: "Malformed Razorpay webhook payload" });
+  }
 
-    if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
-      return res.status(400).json({ success: false, message: "Razorpay webhook secret is not configured" });
+  try {
+    const event = payload.event;
+    if (typeof event !== "string" || !event) {
+      return res.status(400).json({ success: false, message: "Malformed Razorpay webhook payload" });
     }
-
-    const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
-    const expectedSignature = crypto.createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET).update(rawBody).digest("hex");
-
-    if (!signature || !crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(signature))) {
-      return res.status(400).json({ success: false, message: "Invalid Razorpay webhook signature" });
-    }
-
-    const event = payload && payload.event ? payload.event : "unknown";
     const paymentEntity = payload && payload.payload && payload.payload.payment ? payload.payload.payment : null;
     const orderEntity = payload && payload.payload && payload.payload.order ? payload.payload.order : null;
 
-    if ((event === "payment.captured" || event === "order.paid") && paymentEntity) {
-      const order = await orderService.getOrderByRazorpayId(orderEntity ? orderEntity.id : paymentEntity.order_id);
-      if (order) {
-        await orderService.updateOrder(order._id, { paymentStatus: "captured", status: "pending" });
+    if (event === "payment.captured" || event === "payment.failed") {
+      const payment = paymentEntity && paymentEntity.entity;
+      if (!payment || typeof payment.id !== "string" || typeof payment.order_id !== "string") {
+        return res.status(400).json({ success: false, message: "Malformed Razorpay payment event" });
       }
     }
 
-    if (event === "payment.failed" && paymentEntity) {
-      const order = await orderService.getOrderByRazorpayId(paymentEntity.order_id);
+    if (event === "order.paid" && typeof orderEntity?.entity?.id !== "string") {
+      return res.status(400).json({ success: false, message: "Malformed Razorpay order event" });
+    }
+
+    if (event === "payment.captured" || event === "order.paid") {
+      const payment = paymentEntity?.entity;
+      const razorpayOrderId = event === "order.paid"
+        ? orderEntity.entity.id
+        : payment.order_id;
+      const order = await orderService.getOrderByRazorpayId(razorpayOrderId);
       if (order) {
-        await orderService.updateOrder(order._id, { paymentStatus: "failed" });
+        await orderService.markPaymentAsPaid(order._id, {
+          paymentStatus: "captured",
+          ...(payment?.id ? { razorpayPaymentId: payment.id } : {}),
+          paidAt: order.paidAt || new Date(),
+        });
+      }
+    }
+
+    if (event === "payment.failed") {
+      const payment = paymentEntity.entity;
+      const order = await orderService.getOrderByRazorpayId(payment.order_id);
+      if (order) {
+        await orderService.markPaymentAsFailed(order._id);
       }
     }
 
