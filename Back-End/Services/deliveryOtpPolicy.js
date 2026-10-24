@@ -4,6 +4,7 @@ const DELIVERY_OTP_ELIGIBLE_STATUSES = Object.freeze([
   "shipped",
   "out-for-delivery",
 ]);
+const DELIVERY_OTP_GENERATION_STATUSES = Object.freeze(["out-for-delivery"]);
 
 const isDeliveryOtpOrderEligible = (order, supplierId) => Boolean(
   order
@@ -45,6 +46,7 @@ const buildDeliveryOtpCancellationUpdate = () => ({
 
 module.exports = {
   DELIVERY_OTP_ELIGIBLE_STATUSES,
+  DELIVERY_OTP_GENERATION_STATUSES,
   isDeliveryOtpOrderEligible,
   buildDeliveryOtpVerificationFilter,
   buildFailedDeliveryOtpAttemptFilter,

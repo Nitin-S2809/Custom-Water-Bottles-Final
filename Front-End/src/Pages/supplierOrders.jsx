@@ -1,6 +1,7 @@
 import { createElement, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import SupplierOrderDetails from "./SupplierOrderDetails";
+import { API_BASE_URL } from "../utils/authApi";
 import {
   CheckCircle2,
   ChevronDown,
@@ -15,6 +16,8 @@ import {
   ShoppingBag,
   X,
 } from "lucide-react";
+
+const SUPPLIER_ORDERS_API_URL = `${API_BASE_URL.replace(/\/+$/, "")}/api/suppliers/orders`;
 
 const statusLabels = {
   pending: "Pending",
@@ -179,7 +182,7 @@ function OrderDetails({ order, onClose, onStatusUpdated, token }) {
     setStatusMessage("");
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${order._id}/status`, {
+      const response = await fetch(`${SUPPLIER_ORDERS_API_URL}/${encodeURIComponent(String(order._id))}/status`, {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -212,7 +215,7 @@ function OrderDetails({ order, onClose, onStatusUpdated, token }) {
     setStatusMessage("");
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${order._id}/generate-delivery-otp`, {
+      const response = await fetch(`${SUPPLIER_ORDERS_API_URL}/${encodeURIComponent(String(order._id))}/generate-delivery-otp`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -237,7 +240,7 @@ function OrderDetails({ order, onClose, onStatusUpdated, token }) {
     setStatusMessage("");
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${order._id}/verify-delivery-otp`, {
+      const response = await fetch(`${SUPPLIER_ORDERS_API_URL}/${encodeURIComponent(String(order._id))}/verify-delivery-otp`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -261,7 +264,6 @@ function OrderDetails({ order, onClose, onStatusUpdated, token }) {
     }
   };
 
-  console.log("🔥 SupplierOrderDetails.jsx IS RENDERING");
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/30 p-4" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl bg-white p-5 shadow-xl sm:p-6" role="dialog" aria-modal="true" aria-labelledby="order-details-title">
@@ -286,9 +288,6 @@ function OrderDetails({ order, onClose, onStatusUpdated, token }) {
               ["Expected delivery", order.expectedDelivery ? formatDate(order.expectedDelivery) : "Not available"],
               ["Current status", formatStatus(order.status)],
               ["Payment status", order.paymentStatus || "Not available"],
-              ["Customer order subtotal", `₹${Number(order.pricing?.subtotal || 0).toLocaleString("en-IN")}`],
-              ["Customer shipping", `₹${Number(order.pricing?.shipping || 0).toLocaleString("en-IN")}`],
-              ["Customer order total", `₹${Number(order.pricing?.total || 0).toLocaleString("en-IN")}`],
               ...(order.supplierPricing?.items || []).flatMap((item) => [
                 [`${item.bottleType} supplier unit cost`, formatPaise(item.unitCostPaise)],
                 [`${item.bottleType} supplier subtotal`, formatPaise(item.subtotalPaise)],
@@ -307,10 +306,7 @@ function OrderDetails({ order, onClose, onStatusUpdated, token }) {
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Customer information</p>
             </div>
-            {[
-              ["Customer name", customerName],
-              ["Customer mobile", order.customer?.phoneNumber || "Not available"],
-            ].map(([label, value]) => (
+            {[["Customer name", customerName]].map(([label, value]) => (
               <div key={label} className="border-b border-slate-100 pb-2">
                 <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{label}</p>
                 <p className="mt-1 text-sm font-medium text-slate-800">{value}</p>
@@ -361,7 +357,7 @@ function OrderDetails({ order, onClose, onStatusUpdated, token }) {
 
             {currentStatus === "out-for-delivery" ? (
               <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4">
-                <div className="flex items-center gap-2 text-sm font-bold text-amber-900"><KeyRound size={16} /> DELIVERY VERIFICATION</div>
+                <div className="text-sm font-bold text-amber-900">DELIVERY VERIFICATION</div>
                 <p className="mt-3 text-xs font-semibold text-amber-900">Step 1: Generate Delivery OTP</p>
                 <button type="button" onClick={handleGenerateOtp} disabled={otpGenerating || otpVerifying} className="mt-2 rounded-md border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60">
                   {otpGenerating ? "Sending OTP..." : "Generate Delivery OTP"}
@@ -422,7 +418,7 @@ export default function SupplierOrders() {
       setError("");
 
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders`, {
+        const response = await fetch(SUPPLIER_ORDERS_API_URL, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await response.json();
@@ -487,7 +483,7 @@ export default function SupplierOrders() {
 
     setDetailsLoading(true);
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${orderId}`, {
+      const response = await fetch(`${SUPPLIER_ORDERS_API_URL}/${encodeURIComponent(String(orderId))}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await response.json();
@@ -616,7 +612,6 @@ export default function SupplierOrders() {
                   <th className="px-3 py-3 font-medium">Quantity</th>
                   <th className="px-3 py-3 font-medium">Order date</th>
                   <th className="px-3 py-3 font-medium">Status</th>
-                  <th className="px-3 py-3 font-medium">Customer total</th>
                   <th className="px-5 py-3 text-right font-medium">Action</th>
                 </tr>
               </thead>
@@ -636,7 +631,6 @@ export default function SupplierOrders() {
                       <td className="px-3 py-4 text-xs text-slate-600">{Number(order.quantity || 0).toLocaleString()}</td>
                       <td className="px-3 py-4 text-xs text-slate-500">{formatDate(order.createdAt)}</td>
                       <td className="px-3 py-4"><StatusBadge status={status} /></td>
-                      <td className="px-3 py-4 text-xs font-semibold text-slate-800">?{Number(order.pricing?.total || 0).toLocaleString("en-IN")}</td>
                       <td className="px-5 py-4">
                         <div className="flex justify-end">
                           <button type="button" onClick={() => handleViewDetails(order._id)} className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60" disabled={detailsLoading}>

@@ -9,6 +9,7 @@ const { calculateSupplierPricing } = require("./supplierPricingService");
 const { toSupplierSafeOrder } = require("./supplierOrderPrivacy");
 const {
   DELIVERY_OTP_ELIGIBLE_STATUSES,
+  DELIVERY_OTP_GENERATION_STATUSES,
   isDeliveryOtpOrderEligible,
   buildDeliveryOtpVerificationFilter,
   buildFailedDeliveryOtpAttemptFilter,
@@ -147,7 +148,7 @@ const markPaymentAsFailed = async (orderId) => {
 };
 
 const generateDeliveryOtp = async ({ orderId, supplierId }) => {
-  const order = await Order.findOne({ _id: orderId, supplierId }).lean();
+  const order = await Order.findOne({ _id: orderId, supplierId }).select("+deliveryOtpHash").lean();
 
   if (!order) {
     const error = new Error("Order not found for this supplier");
@@ -173,10 +174,23 @@ const generateDeliveryOtp = async ({ orderId, supplierId }) => {
     throw error;
   }
 
-  const allowedStatuses = DELIVERY_OTP_ELIGIBLE_STATUSES;
+  const allowedStatuses = DELIVERY_OTP_GENERATION_STATUSES;
   if (!allowedStatuses.includes(order.status)) {
     const error = new Error("Order is not ready for delivery OTP generation");
     error.code = "ORDER_NOT_READY";
+    throw error;
+  }
+
+  if (order.deliveryStatus === "completed") {
+    const error = new Error("Delivery OTP cannot be generated for a completed delivery");
+    error.code = "ORDER_NOT_ELIGIBLE";
+    throw error;
+  }
+
+  const now = new Date();
+  if (order.deliveryOtpHash && order.deliveryOtpExpiresAt && new Date(order.deliveryOtpExpiresAt) > now) {
+    const error = new Error("A valid delivery OTP has already been sent. Please use the existing OTP.");
+    error.code = "OTP_ALREADY_ACTIVE";
     throw error;
   }
 
@@ -188,7 +202,6 @@ const generateDeliveryOtp = async ({ orderId, supplierId }) => {
     throw error;
   }
 
-  const now = new Date();
   const cooldownMs = DELIVERY_OTP_RESEND_COOLDOWN_SECONDS * 1000;
   const cooldownCutoff = new Date(now.getTime() - cooldownMs);
   if (order.deliveryOtpGeneratedAt && new Date(order.deliveryOtpGeneratedAt) > cooldownCutoff) {
@@ -211,6 +224,16 @@ const generateDeliveryOtp = async ({ orderId, supplierId }) => {
         { deliveryOtpGeneratedAt: null },
         { deliveryOtpGeneratedAt: { $lte: cooldownCutoff } },
       ],
+      $and: [
+        {
+          $or: [
+            { deliveryOtpHash: null },
+            { deliveryOtpHash: { $exists: false } },
+            { deliveryOtpExpiresAt: null },
+            { deliveryOtpExpiresAt: { $lte: now } },
+          ],
+        },
+      ],
     },
     {
       $set: {
@@ -218,7 +241,6 @@ const generateDeliveryOtp = async ({ orderId, supplierId }) => {
         deliveryOtpExpiresAt: expiresAt,
         deliveryOtpAttempts: 0,
         deliveryOtpGeneratedAt: now,
-        deliveryStatus: order.status === "out-for-delivery" ? "out-for-delivery" : "ready",
       },
     }
   );
@@ -246,11 +268,6 @@ const generateDeliveryOtp = async ({ orderId, supplierId }) => {
         deliveryOtpGeneratedAt: null,
       },
     };
-    if (Object.prototype.hasOwnProperty.call(order, "deliveryStatus")) {
-      rollback.$set.deliveryStatus = order.deliveryStatus;
-    } else {
-      rollback.$unset = { deliveryStatus: 1 };
-    }
 
     try {
       await Order.updateOne({ _id: orderId, supplierId, deliveryOtpHash: otpHash }, rollback);

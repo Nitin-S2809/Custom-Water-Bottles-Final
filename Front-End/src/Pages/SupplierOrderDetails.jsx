@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   AlertCircle,
@@ -50,6 +50,7 @@ const STATUS_ACTIONS = {
 };
 
 const UNAUTHORIZED = "unauthorized";
+const SUPPLIER_ORDERS_API_URL = `${API_BASE_URL.replace(/\/+$/, "")}/api/suppliers/orders`;
 
 function formatMoney(value, currency = "INR") {
   const amount = Number(value);
@@ -227,7 +228,7 @@ export default function SupplierOrderDetails({
     setError("");
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${encodeURIComponent(orderId)}`, {
+      const response = await fetch(`${SUPPLIER_ORDERS_API_URL}/${encodeURIComponent(orderId)}`, {
         method: "GET",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -272,7 +273,7 @@ export default function SupplierOrderDetails({
     setToast(null);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${encodeURIComponent(orderId)}/status`, {
+      const response = await fetch(`${SUPPLIER_ORDERS_API_URL}/${encodeURIComponent(orderId)}/status`, {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -299,13 +300,19 @@ export default function SupplierOrderDetails({
   };
 
   const handleGenerateOtp = async () => {
-    if (!token || !orderId || otpLoading) return;
+    if (!token || otpLoading) return;
+    if (typeof orderId !== "string" || !orderId.trim()) {
+      const message = "Order ID is missing. Reload the order before generating a delivery OTP.";
+      setError(message);
+      setToast({ type: "error", message });
+      return;
+    }
 
     setOtpLoading(true);
     setError("");
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${encodeURIComponent(orderId)}/generate-delivery-otp`, {
+      const response = await fetch(`${SUPPLIER_ORDERS_API_URL}/${encodeURIComponent(orderId.trim())}/generate-delivery-otp`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -332,7 +339,7 @@ export default function SupplierOrderDetails({
     setError("");
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${encodeURIComponent(orderId)}/verify-delivery-otp`, {
+      const response = await fetch(`${SUPPLIER_ORDERS_API_URL}/${encodeURIComponent(orderId)}/verify-delivery-otp`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -365,7 +372,7 @@ export default function SupplierOrderDetails({
     setError("");
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers/orders/${encodeURIComponent(orderId)}/initiate-payout`, {
+      const response = await fetch(`${SUPPLIER_ORDERS_API_URL}/${encodeURIComponent(orderId)}/initiate-payout`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -391,12 +398,7 @@ export default function SupplierOrderDetails({
   const canGenerateOtp = currentStatus === "out-for-delivery" && !order?.deliveryOtpVerifiedAt && paymentComplete;
   const canPayout = order?.status === "delivered" && paymentComplete && Boolean(order?.deliveryOtpVerifiedAt) && !["processed", "processing"].includes(order?.supplierPayoutStatus);
 
-  const summaryValues = useMemo(() => ({
-    total: Number(order?.pricing?.total || 0),
-    subtotal: Number(order?.pricing?.subtotal || 0),
-    shipping: Number(order?.pricing?.shipping || 0),
-    quantity: Number(order?.quantity || 0),
-  }), [order]);
+  const quantity = Number(order?.quantity || 0);
 
   if (loading) {
     return (
@@ -484,11 +486,7 @@ export default function SupplierOrderDetails({
             <dl className="mt-5 grid gap-4 sm:grid-cols-2">
               <DetailItem label="Bottle / Product" value={`${order.bottleType || "Bottle"} bottle`} />
               <DetailItem label="Bottle size" value={order.bottleType || "Not available"} />
-              <DetailItem label="Quantity" value={`${summaryValues.quantity.toLocaleString("en-IN")} units`} />
-              <DetailItem label="Price" value={formatMoney(order.pricing?.unitPrice || 0)} />
-              <DetailItem label="Customer order subtotal" value={formatMoney(summaryValues.subtotal)} />
-              <DetailItem label="Customer shipping" value={formatMoney(summaryValues.shipping)} />
-              <DetailItem label="Customer order total" value={formatMoney(summaryValues.total)} />
+              <DetailItem label="Quantity" value={`${quantity.toLocaleString("en-IN")} units`} />
               {(order.supplierPricing?.items || []).map((item) => (
                 <DetailItem key={`${item.bottleType}-supplier-cost`} label={`${item.bottleType} supplier unit cost`} value={formatMoney(Number(item.unitCostPaise) / 100)} />
               ))}
@@ -514,7 +512,6 @@ export default function SupplierOrderDetails({
 
             <dl className="mt-5 space-y-4">
               <DetailItem label="Name" value={order.customer?.username || order.customer?.fullName || "Not available"} />
-              <DetailItem label="Mobile" value={order.customer?.phoneNumber || "Not available"} />
             </dl>
           </section>
 

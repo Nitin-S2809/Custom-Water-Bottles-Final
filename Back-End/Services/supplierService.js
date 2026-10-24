@@ -2,7 +2,6 @@ const Supplier = require("../MODELS/supplier");
 const Order = require("../MODELS/orderModel");
 const SupportRequest = require("../MODELS/supportRequest");
 const User = require("../MODELS/usermodel");
-const Address = require("../MODELS/addressModel");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { calculateSupplierPricing } = require("./supplierPricingService");
@@ -218,21 +217,17 @@ const enrichOrdersWithCustomerData = async (orders = [], supplierId) => {
         }));
     }
 
-    const [customers, addresses] = await Promise.all([
-        User.find({ _id: { $in: customerIds } }).select("username").lean(),
-        Address.find({ userId: { $in: customerIds } }).select("userId phoneNumber").lean(),
-    ]);
+    const customers = await User.find({ _id: { $in: customerIds } }).select("username").lean();
 
     const customersById = new Map(customers.map((customer) => [String(customer._id), customer]));
-    const addressesByUserId = new Map(addresses.map((address) => [String(address.userId), address]));
 
     return preparedOrders.map((order) => ({
         ...toSupplierSafeOrder(order),
         customer: String(order.supplierId || "") === String(supplierId)
-            ? {
-                ...(customersById.get(String(order.userId)) || {}),
-                phoneNumber: addressesByUserId.get(String(order.userId))?.phoneNumber || null,
-            }
+            ? (() => {
+                const username = customersById.get(String(order.userId))?.username;
+                return typeof username === "string" ? { username } : null;
+            })()
             : null,
     }));
 };
@@ -552,10 +547,7 @@ const getSupplierOrderById = async ({ supplierId, orderId }) => {
     }
 
     const preparedOrder = await ensureSupplierPricingSnapshot(order);
-    const [customer, deliveryContact] = await Promise.all([
-        User.findById(order.userId).select("username").lean(),
-        Address.findOne({ userId: order.userId }).select("userId phoneNumber").lean(),
-    ]);
+    const customer = await User.findById(order.userId).select("username").lean();
 
     return {
         supplier: {
@@ -563,11 +555,7 @@ const getSupplierOrderById = async ({ supplierId, orderId }) => {
             companyName: supplier.companyName,
         },
         order: {
-            ...toSupplierSafeOrder(preparedOrder),
-            customer: {
-                ...(customer || {}),
-                phoneNumber: deliveryContact?.phoneNumber || null,
-            },
+            ...toSupplierSafeOrder({ ...preparedOrder, customer }),
         },
     };
 };

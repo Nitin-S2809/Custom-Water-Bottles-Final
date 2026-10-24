@@ -1,6 +1,7 @@
 const supplierservices = require("../Services/supplierService");
 const orderService = require("../Services/orderService");
 const Supplier = require("../MODELS/supplier");
+const { toSupplierSafeOrder } = require("../Services/supplierOrderPrivacy");
 const jwt = require("jsonwebtoken");
 const fs = require("fs");
 
@@ -269,6 +270,7 @@ const generateDeliveryOtpForOrder = async (req, res) => {
         if (error.code === "ORDER_NOT_ELIGIBLE") return res.status(400).json({ success: false, message: error.message });
         if (error.code === "CUSTOMER_EMAIL_UNAVAILABLE") return res.status(400).json({ success: false, message: error.message });
         if (error.code === "OTP_RESEND_COOLDOWN") return res.status(429).json({ success: false, message: error.message });
+        if (error.code === "OTP_ALREADY_ACTIVE") return res.status(409).json({ success: false, message: error.message });
         if (error.code === "DELIVERY_OTP_EMAIL_FAILED") return res.status(502).json({ success: false, message: "Unable to send the delivery OTP. Please try again." });
         return res.status(500).json({ success: false, message: "Unable to generate delivery OTP" });
     }
@@ -281,7 +283,7 @@ const verifyDeliveryOtpForOrder = async (req, res) => {
         if (!otp) return res.status(400).json({ success: false, message: "OTP is required" });
 
         const order = await orderService.verifyDeliveryOtp({ orderId, supplierId: req.user.id, otp });
-        return res.status(200).json({ success: true, message: "Delivery completed successfully", order });
+        return res.status(200).json({ success: true, message: "Delivery completed successfully", order: toSupplierSafeOrder(order) });
     } catch (error) {
         if (error.code === "ORDER_NOT_FOUND") return res.status(404).json({ success: false, message: error.message });
         if (error.code === "ORDER_ALREADY_DELIVERED") return res.status(400).json({ success: false, message: error.message });

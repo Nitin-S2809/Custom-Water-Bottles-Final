@@ -2,18 +2,21 @@ const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const express = require("express");
 const http = require("node:http");
+const jwt = require("jsonwebtoken");
 const test = require("node:test");
 
 const pricingConfig = require("../config/pricingConfig");
 const { calculatePrice, calculateCartPrice } = require("../Services/pricingService");
 const { calculateSupplierPricing } = require("../Services/supplierPricingService");
 const { toSupplierSafeOrder } = require("../Services/supplierOrderPrivacy");
+const passwordResetEmail = require("../Services/passwordResetEmail");
 const {
   parseRazorpayWebhookPayload,
   verifyRazorpayWebhookSignature,
 } = require("../Services/razorpayWebhook");
 const {
   DELIVERY_OTP_ELIGIBLE_STATUSES,
+  DELIVERY_OTP_GENERATION_STATUSES,
   isDeliveryOtpOrderEligible,
   buildDeliveryOtpVerificationFilter,
   buildDeliveryOtpCancellationUpdate,
@@ -21,7 +24,10 @@ const {
 const { reserveSupplierPayout } = require("../Services/supplierPayoutReservation");
 const { buildHappyClientsPipeline } = require("../Services/happyClientsQuery");
 const Order = require("../MODELS/orderModel");
+const Supplier = require("../MODELS/supplier");
+const User = require("../MODELS/usermodel");
 const orderService = require("../Services/orderService");
+const supplierRoutes = require("../Routes/SupplierRoutes");
 const { handleRazorpayWebhook } = require("../Controller/paymentController");
 
 const webhookSecret = "unit-test-webhook-secret";
@@ -240,6 +246,7 @@ test("delivery OTP policy excludes cancelled, unpaid, completed, and other-suppl
     deliveryStatus: "out-for-delivery",
   };
   assert.equal(isDeliveryOtpOrderEligible(baseOrder, "supplier-a"), true);
+  assert.deepEqual(DELIVERY_OTP_GENERATION_STATUSES, ["out-for-delivery"]);
   assert.equal(isDeliveryOtpOrderEligible({ ...baseOrder, status: "cancelled" }, "supplier-a"), false);
   assert.equal(isDeliveryOtpOrderEligible({ ...baseOrder, paymentStatus: "pending" }, "supplier-a"), false);
   assert.equal(isDeliveryOtpOrderEligible(baseOrder, "supplier-b"), false);
@@ -347,8 +354,13 @@ test("supplier bottle cost and customer pricing regressions", () => {
   ]).success, false);
 });
 
-test("supplier serializer removes customer address and private contact fields", () => {
+test("supplier serializer allowlists customer name and supplier-side order information", () => {
   const supplierOrder = toSupplierSafeOrder({
+    _id: "order-id",
+    bottleType: "500ml",
+    quantity: 600,
+    items: [{ bottleType: "500ml", quantity: 600, unitPrice: 9, subtotal: 5400 }],
+    pricing: { unitPrice: 9, subtotal: 5400, shipping: 600, total: 6000 },
     address: "private",
     addressId: "private",
     addressSnapshot: "private",
@@ -360,15 +372,210 @@ test("supplier serializer removes customer address and private contact fields", 
     state: "private",
     phoneNumber: "private",
     email: "private",
-    customer: { username: "Allowed", phoneNumber: "Allowed", address: "private", email: "private" },
-    supplierPricing: { subtotalPaise: 474000 },
+    customer: {
+      username: "Allowed",
+      phoneNumber: "private",
+      email: "private",
+      address: { addressLine1: "private", city: "private" },
+      nested: { phoneNumber: "private" },
+    },
+    supplierPricing: {
+      subtotalPaise: 474000,
+      currency: "INR",
+      items: [{ bottleType: "500ml", quantity: 600, unitCostPaise: 790, subtotalPaise: 474000, unitPrice: 9 }],
+    },
+    deliveryOtpHash: "private",
+    deliveryOtpExpiresAt: new Date(),
+    userId: "private",
+    razorpayOrderId: "private",
     status: "accepted",
   });
   for (const key of ["address", "addressId", "addressSnapshot", "deliveryAddress", "addressLine1", "fullName", "pincode", "city", "state", "phoneNumber", "email"]) {
     assert.equal(Object.hasOwn(supplierOrder, key), false);
   }
-  assert.deepEqual(supplierOrder.customer, { username: "Allowed", phoneNumber: "Allowed" });
+  assert.deepEqual(supplierOrder.customer, { username: "Allowed" });
+  assert.equal(Object.hasOwn(supplierOrder, "pricing"), false);
+  assert.equal(Object.hasOwn(supplierOrder, "deliveryOtpHash"), false);
+  assert.equal(Object.hasOwn(supplierOrder, "deliveryOtpExpiresAt"), false);
+  assert.equal(Object.hasOwn(supplierOrder, "userId"), false);
+  assert.equal(Object.hasOwn(supplierOrder, "razorpayOrderId"), false);
+  assert.deepEqual(supplierOrder.items, [{ bottleType: "500ml", quantity: 600 }]);
   assert.equal(supplierOrder.supplierPricing.subtotalPaise, 474000);
+  assert.deepEqual(supplierOrder.supplierPricing.items, [{
+    bottleType: "500ml",
+    quantity: 600,
+    unitCostPaise: 790,
+    subtotalPaise: 474000,
+  }]);
+});
+
+test("delivery OTP generation stores a hashed code without changing order or payment status", async () => {
+  const originals = {
+    findOne: Order.findOne,
+    updateOne: Order.updateOne,
+    findById: User.findById,
+    sendDeliveryOtp: passwordResetEmail.sendDeliveryOtp,
+  };
+  const testOrder = {
+    _id: "order-id",
+    supplierId: "supplier-id",
+    userId: "customer-id",
+    status: "out-for-delivery",
+    deliveryStatus: "out-for-delivery",
+    paymentStatus: "captured",
+    deliveryOtpHash: "expired-hash",
+    deliveryOtpExpiresAt: new Date(0),
+    deliveryOtpGeneratedAt: new Date(0),
+  };
+  let storedUpdate;
+  let sentEmail;
+
+  Order.findOne = () => ({
+    select() {
+      return { lean: async () => testOrder };
+    },
+  });
+  Order.updateOne = async (filter, update) => {
+    assert.equal(filter.supplierId, "supplier-id");
+    assert.ok(filter.$and[0].$or.some((condition) => condition.deliveryOtpExpiresAt?.$lte));
+    storedUpdate = update;
+    return { matchedCount: 1 };
+  };
+  User.findById = () => ({
+    select() {
+      return { lean: async () => ({ username: "Customer", email: "customer@example.com" }) };
+    },
+  });
+  passwordResetEmail.sendDeliveryOtp = async (email) => {
+    sentEmail = email;
+  };
+
+  try {
+    const result = await orderService.generateDeliveryOtp({ orderId: "order-id", supplierId: "supplier-id" });
+    const otp = sentEmail.otp;
+    assert.match(otp, /^\d{6}$/);
+    assert.equal(storedUpdate.$set.deliveryOtpHash, crypto.createHash("sha256").update(otp).digest("hex"));
+    assert.ok(storedUpdate.$set.deliveryOtpExpiresAt > new Date());
+    assert.equal(Object.hasOwn(storedUpdate.$set, "status"), false);
+    assert.equal(Object.hasOwn(storedUpdate.$set, "paymentStatus"), false);
+    assert.equal(Object.hasOwn(storedUpdate.$set, "deliveryStatus"), false);
+    assert.equal(testOrder.status, "out-for-delivery");
+    assert.equal(testOrder.paymentStatus, "captured");
+    assert.ok(result.expiresAt > new Date());
+  } finally {
+    Order.findOne = originals.findOne;
+    Order.updateOne = originals.updateOne;
+    User.findById = originals.findById;
+    passwordResetEmail.sendDeliveryOtp = originals.sendDeliveryOtp;
+  }
+});
+
+test("delivery OTP generation rejects unassigned suppliers and does not replace an active OTP", async (t) => {
+  const originalFindOne = Order.findOne;
+  const originalUpdateOne = Order.updateOne;
+  let updateCalled = false;
+
+  t.after(() => {
+    Order.findOne = originalFindOne;
+    Order.updateOne = originalUpdateOne;
+  });
+
+  Order.findOne = (filter) => ({
+    select() {
+      return {
+        lean: async () => filter.supplierId === "supplier-a"
+          ? {
+            supplierId: "supplier-a",
+            status: "out-for-delivery",
+            deliveryStatus: "out-for-delivery",
+            paymentStatus: "paid",
+            deliveryOtpHash: "existing-hash",
+            deliveryOtpExpiresAt: new Date(Date.now() + 60_000),
+          }
+          : null,
+      };
+    },
+  });
+  Order.updateOne = async () => {
+    updateCalled = true;
+    return { matchedCount: 1 };
+  };
+
+  await assert.rejects(
+    orderService.generateDeliveryOtp({ orderId: "order-id", supplierId: "supplier-b" }),
+    (error) => error.code === "ORDER_NOT_FOUND"
+  );
+  await assert.rejects(
+    orderService.generateDeliveryOtp({ orderId: "order-id", supplierId: "supplier-a" }),
+    (error) => error.code === "OTP_ALREADY_ACTIVE"
+  );
+  assert.equal(updateCalled, false);
+});
+
+test("supplier OTP endpoint is authenticated POST at the mounted API path", async () => {
+  const originals = {
+    jwtSecret: process.env.JWT_SECRET,
+    supplierFindById: Supplier.findById,
+    generateDeliveryOtp: orderService.generateDeliveryOtp,
+  };
+  let supplierApproved = true;
+  let generatedFor;
+  process.env.JWT_SECRET = "supplier-route-test-secret";
+  Supplier.findById = () => ({
+    select() {
+      return {
+        lean: async () => ({
+          role: "supplier",
+          isActive: supplierApproved,
+          approvalStatus: supplierApproved ? "approved" : "pending",
+        }),
+      };
+    },
+  });
+  orderService.generateDeliveryOtp = async (params) => {
+    generatedFor = params;
+    return { expiresAt: new Date(Date.now() + 600_000) };
+  };
+
+  const app = express();
+  app.use(express.json());
+  app.use("/api/suppliers", supplierRoutes);
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}/api/suppliers/orders/order-id/generate-delivery-otp`;
+  const token = jwt.sign({ id: "supplier-id", role: "supplier" }, process.env.JWT_SECRET);
+
+  try {
+    const getResponse = await fetch(baseUrl);
+    assert.equal(getResponse.status, 404);
+
+    const unauthenticatedResponse = await fetch(baseUrl, { method: "POST" });
+    assert.equal(unauthenticatedResponse.status, 401);
+
+    supplierApproved = false;
+    const pendingSupplierResponse = await fetch(baseUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(pendingSupplierResponse.status, 403);
+
+    supplierApproved = true;
+    const authorizedResponse = await fetch(baseUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(authorizedResponse.status, 200);
+    assert.deepEqual(generatedFor, { orderId: "order-id", supplierId: "supplier-id" });
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    Supplier.findById = originals.supplierFindById;
+    orderService.generateDeliveryOtp = originals.generateDeliveryOtp;
+    if (originals.jwtSecret === undefined) {
+      delete process.env.JWT_SECRET;
+    } else {
+      process.env.JWT_SECRET = originals.jwtSecret;
+    }
+  }
 });
 
 test("public happy-clients aggregate requires verified paid delivery and groups by customer", () => {

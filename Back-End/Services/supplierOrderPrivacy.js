@@ -1,40 +1,71 @@
 const toSupplierSafeOrder = (order) => {
   if (!order) return order;
 
-  const safeOrder = typeof order.toObject === "function" ? order.toObject() : { ...order };
-  for (const field of [
-    "address",
-    "addressId",
-    "addressSnapshot",
-    "addressLine1",
-    "addressLine2",
-    "customer",
-    "customerAddress",
-    "customerEmail",
-    "customerPhone",
-    "deliveryInstructions",
-    "deliveryAddress",
-    "fullName",
-    "pincode",
-    "postalCode",
-    "zipCode",
-    "city",
-    "state",
-    "country",
-    "email",
-    "phoneNumber",
-    "shippingAddress",
-    "user",
-  ]) {
-    delete safeOrder[field];
+  const value = typeof order.toObject === "function" ? order.toObject() : order;
+  const safeOrder = {};
+  const allowedFields = [
+    "_id",
+    "supplierId",
+    "bottleType",
+    "quantity",
+    "brandName",
+    "printing",
+    "logoUrl",
+    "specialInstructions",
+    "status",
+    "deliveryStatus",
+    "paymentStatus",
+    "deliveryOtpVerifiedAt",
+    "supplierPayoutStatus",
+    "supplierPayoutId",
+    "supplierPayoutAmount",
+    "supplierPayoutAmountPaise",
+    "supplierPayoutInitiatedAt",
+    "supplierPayoutCompletedAt",
+    "supplierPayoutFailedAt",
+    "supplierPayoutFailureReason",
+    "expectedDelivery",
+    "createdAt",
+    "updatedAt",
+  ];
+
+  for (const field of allowedFields) {
+    if (Object.prototype.hasOwnProperty.call(value, field)) {
+      safeOrder[field] = value[field];
+    }
   }
 
-  if (order.customer && typeof order.customer === "object") {
-    safeOrder.customer = {
-      ...(typeof order.customer.username === "string" ? { username: order.customer.username } : {}),
-      ...(typeof order.customer.phoneNumber === "string" ? { phoneNumber: order.customer.phoneNumber } : {}),
+  if (Array.isArray(value.items)) {
+    safeOrder.items = value.items.map((item) => ({
+      ...(typeof item?.bottleType === "string" ? { bottleType: item.bottleType } : {}),
+      ...(Number.isFinite(item?.quantity) ? { quantity: item.quantity } : {}),
+    }));
+  }
+
+  if (value.supplierPricing && typeof value.supplierPricing === "object") {
+    const supplierPricing = value.supplierPricing.toObject
+      ? value.supplierPricing.toObject()
+      : value.supplierPricing;
+    safeOrder.supplierPricing = {
+      ...(Array.isArray(supplierPricing.items)
+        ? {
+          items: supplierPricing.items.map((item) => ({
+            ...(typeof item?.bottleType === "string" ? { bottleType: item.bottleType } : {}),
+            ...(Number.isFinite(item?.quantity) ? { quantity: item.quantity } : {}),
+            ...(Number.isSafeInteger(item?.unitCostPaise) ? { unitCostPaise: item.unitCostPaise } : {}),
+            ...(Number.isSafeInteger(item?.subtotalPaise) ? { subtotalPaise: item.subtotalPaise } : {}),
+          })),
+        }
+        : {}),
+      ...(Number.isSafeInteger(supplierPricing.subtotalPaise)
+        ? { subtotalPaise: supplierPricing.subtotalPaise }
+        : {}),
+      ...(supplierPricing.currency === "INR" ? { currency: supplierPricing.currency } : {}),
     };
   }
+
+  const username = value.customer?.username;
+  safeOrder.customer = typeof username === "string" ? { username } : null;
 
   return safeOrder;
 };
