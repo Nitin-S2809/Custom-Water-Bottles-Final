@@ -33,6 +33,30 @@ const { handleRazorpayWebhook } = require("../Controller/paymentController");
 const webhookSecret = "unit-test-webhook-secret";
 const signWebhook = (rawBody) => crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
 
+const withResendTestConfig = async (run) => {
+  const originals = {
+    apiKey: process.env.RESEND_API_KEY,
+    from: process.env.RESEND_FROM_EMAIL,
+    clientUrl: process.env.CLIENT_URL,
+    fetch: global.fetch,
+  };
+  process.env.RESEND_API_KEY = "re_test_api_key";
+  process.env.RESEND_FROM_EMAIL = "AquaBrand <deliveries@example.test>";
+  process.env.CLIENT_URL = "https://aquabrand.example.test";
+
+  try {
+    await run();
+  } finally {
+    if (originals.apiKey === undefined) delete process.env.RESEND_API_KEY;
+    else process.env.RESEND_API_KEY = originals.apiKey;
+    if (originals.from === undefined) delete process.env.RESEND_FROM_EMAIL;
+    else process.env.RESEND_FROM_EMAIL = originals.from;
+    if (originals.clientUrl === undefined) delete process.env.CLIENT_URL;
+    else process.env.CLIENT_URL = originals.clientUrl;
+    global.fetch = originals.fetch;
+  }
+};
+
 const makeResponse = () => ({
   statusCode: 200,
   body: null,
@@ -375,7 +399,7 @@ test("supplier serializer allowlists customer name and supplier-side order infor
     customer: {
       username: "Allowed",
       phoneNumber: "private",
-      email: "private",
+      email: "customer@example.com",
       address: { addressLine1: "private", city: "private" },
       nested: { phoneNumber: "private" },
     },
@@ -393,7 +417,7 @@ test("supplier serializer allowlists customer name and supplier-side order infor
   for (const key of ["address", "addressId", "addressSnapshot", "deliveryAddress", "addressLine1", "fullName", "pincode", "city", "state", "phoneNumber", "email"]) {
     assert.equal(Object.hasOwn(supplierOrder, key), false);
   }
-  assert.deepEqual(supplierOrder.customer, { username: "Allowed" });
+  assert.deepEqual(supplierOrder.customer, { username: "Allowed", email: "customer@example.com" });
   assert.equal(Object.hasOwn(supplierOrder, "pricing"), false);
   assert.equal(Object.hasOwn(supplierOrder, "deliveryOtpHash"), false);
   assert.equal(Object.hasOwn(supplierOrder, "deliveryOtpExpiresAt"), false);
@@ -407,6 +431,165 @@ test("supplier serializer allowlists customer name and supplier-side order infor
     unitCostPaise: 790,
     subtotalPaise: 474000,
   }]);
+});
+
+test("shared email service sends OTP and password reset through Resend HTTPS API", async () => {
+  await withResendTestConfig(async () => {
+    const requests = [];
+    global.fetch = async (url, options) => {
+      requests.push({ url: String(url), options });
+      return new Response(JSON.stringify({ id: `email-${requests.length}` }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+
+    const otpResult = await passwordResetEmail.sendDeliveryOtp({
+      email: "customer@example.test",
+      username: "Customer",
+      orderId: "order-123",
+      otp: "123456",
+      expiresInMinutes: 10,
+    });
+    const resetResult = await passwordResetEmail.send({
+      email: "customer@example.test",
+      username: "Customer",
+      token: "reset-token-for-unit-test",
+    });
+
+    assert.deepEqual(otpResult, { id: "email-1" });
+    assert.deepEqual(resetResult, { id: "email-2" });
+    assert.equal(requests.length, 2);
+    for (const request of requests) {
+      assert.equal(request.url, "https://api.resend.com/emails");
+      assert.equal(request.options.method, "POST");
+      assert.equal(request.options.headers.get("Authorization").startsWith("Bearer "), true);
+      assert.ok(request.options.headers.get("Idempotency-Key"));
+    }
+
+    const otpEmail = JSON.parse(requests[0].options.body);
+    assert.equal(otpEmail.to[0], "customer@example.test");
+    assert.equal(otpEmail.subject, "AquaBrand Delivery Verification OTP");
+    assert.match(otpEmail.text, /123456/);
+    assert.equal(otpEmail.from, "AquaBrand <deliveries@example.test>");
+
+    const resetEmail = JSON.parse(requests[1].options.body);
+    assert.equal(resetEmail.subject, "Reset your AquaBrand password");
+    assert.match(resetEmail.text, /reset-password\/reset-token-for-unit-test/);
+  });
+});
+
+test("shared email service distinguishes provider rejection from uncertain transport outcome", async () => {
+  await withResendTestConfig(async () => {
+    global.fetch = async () => new Response(JSON.stringify({
+      name: "validation_error",
+      statusCode: 422,
+      message: "Request rejected",
+    }), {
+      status: 422,
+      headers: { "Content-Type": "application/json" },
+    });
+
+    await assert.rejects(
+      passwordResetEmail.send({
+        email: "customer@example.test",
+        username: "Customer",
+        token: "reset-token",
+      }),
+      (error) => error.code === "EMAIL_PROVIDER_REJECTED" && error.statusCode === 422
+    );
+
+    global.fetch = async () => {
+      throw new TypeError("network timeout");
+    };
+    await assert.rejects(
+      passwordResetEmail.sendDeliveryOtp({
+        email: "customer@example.test",
+        username: "Customer",
+        orderId: "order-uncertain",
+        otp: "654321",
+        expiresInMinutes: 10,
+      }),
+      (error) => error.code === "EMAIL_DELIVERY_UNKNOWN"
+    );
+  });
+});
+
+test("OTP email rejection rolls back OTP state but ambiguous delivery preserves it", async () => {
+  const originals = {
+    findOne: Order.findOne,
+    updateOne: Order.updateOne,
+    findById: User.findById,
+    sendDeliveryOtp: passwordResetEmail.sendDeliveryOtp,
+  };
+  const makeOrder = () => ({
+    _id: "order-id",
+    supplierId: "supplier-id",
+    userId: "customer-id",
+    status: "out-for-delivery",
+    deliveryStatus: "out-for-delivery",
+    paymentStatus: "captured",
+    deliveryOtpHash: null,
+    deliveryOtpExpiresAt: null,
+    deliveryOtpGeneratedAt: null,
+  });
+  let order = makeOrder();
+  let updates = [];
+
+  Order.findOne = () => ({
+    select() {
+      return { lean: async () => order };
+    },
+  });
+  Order.updateOne = async (_filter, update) => {
+    updates.push(update);
+    if (update.$set.deliveryOtpHash) {
+      order = { ...order, ...update.$set };
+    } else if (update.$set.deliveryOtpHash === null) {
+      order = { ...order, ...update.$set };
+    }
+    return { matchedCount: 1 };
+  };
+  User.findById = () => ({
+    select() {
+      return { lean: async () => ({ username: "Customer", email: "customer@example.test" }) };
+    },
+  });
+
+  try {
+    passwordResetEmail.sendDeliveryOtp = async () => {
+      const error = new Error("rejected");
+      error.code = "EMAIL_PROVIDER_REJECTED";
+      error.statusCode = 422;
+      throw error;
+    };
+    await assert.rejects(
+      orderService.generateDeliveryOtp({ orderId: "order-id", supplierId: "supplier-id" }),
+      (error) => error.code === "DELIVERY_OTP_EMAIL_REJECTED"
+    );
+    assert.equal(updates.length, 2);
+    assert.equal(order.deliveryOtpHash, null);
+
+    order = makeOrder();
+    updates = [];
+    passwordResetEmail.sendDeliveryOtp = async () => {
+      const error = new Error("unknown");
+      error.code = "EMAIL_DELIVERY_UNKNOWN";
+      throw error;
+    };
+    await assert.rejects(
+      orderService.generateDeliveryOtp({ orderId: "order-id", supplierId: "supplier-id" }),
+      (error) => error.code === "DELIVERY_OTP_EMAIL_UNKNOWN"
+    );
+    assert.equal(updates.length, 1);
+    assert.match(order.deliveryOtpHash, /^[a-f0-9]{64}$/);
+    assert.ok(order.deliveryOtpExpiresAt > new Date());
+  } finally {
+    Order.findOne = originals.findOne;
+    Order.updateOne = originals.updateOne;
+    User.findById = originals.findById;
+    passwordResetEmail.sendDeliveryOtp = originals.sendDeliveryOtp;
+  }
 });
 
 test("delivery OTP generation stores a hashed code without changing order or payment status", async () => {
@@ -566,6 +749,21 @@ test("supplier OTP endpoint is authenticated POST at the mounted API path", asyn
     });
     assert.equal(authorizedResponse.status, 200);
     assert.deepEqual(generatedFor, { orderId: "order-id", supplierId: "supplier-id" });
+
+    orderService.generateDeliveryOtp = async () => {
+      const error = new Error("Email delivery failed");
+      error.code = "DELIVERY_OTP_EMAIL_REJECTED";
+      throw error;
+    };
+    const emailFailureResponse = await fetch(baseUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(emailFailureResponse.status, 502);
+    assert.deepEqual(await emailFailureResponse.json(), {
+      success: false,
+      message: "The email provider rejected the delivery email. No OTP was sent; check the verified sender configuration and try again.",
+    });
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     Supplier.findById = originals.supplierFindById;

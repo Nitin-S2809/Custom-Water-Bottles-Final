@@ -271,6 +271,8 @@ const generateDeliveryOtpForOrder = async (req, res) => {
         if (error.code === "CUSTOMER_EMAIL_UNAVAILABLE") return res.status(400).json({ success: false, message: error.message });
         if (error.code === "OTP_RESEND_COOLDOWN") return res.status(429).json({ success: false, message: error.message });
         if (error.code === "OTP_ALREADY_ACTIVE") return res.status(409).json({ success: false, message: error.message });
+        if (error.code === "DELIVERY_OTP_EMAIL_REJECTED") return res.status(502).json({ success: false, message: "The email provider rejected the delivery email. No OTP was sent; check the verified sender configuration and try again." });
+        if (error.code === "DELIVERY_OTP_EMAIL_UNKNOWN") return res.status(502).json({ success: false, message: "Email delivery could not be confirmed. The OTP may still be valid until it expires; check with the customer before requesting another." });
         if (error.code === "DELIVERY_OTP_EMAIL_FAILED") return res.status(502).json({ success: false, message: "Unable to send the delivery OTP. Please try again." });
         return res.status(500).json({ success: false, message: "Unable to generate delivery OTP" });
     }

@@ -65,7 +65,14 @@ const toSupplierSafeOrder = (order) => {
   }
 
   const username = value.customer?.username;
-  safeOrder.customer = typeof username === "string" ? { username } : null;
+  const email = value.customer?.email;
+  safeOrder.customer = {
+    ...(typeof username === "string" ? { username } : {}),
+    ...(typeof email === "string" ? { email } : {}),
+  };
+  if (!Object.keys(safeOrder.customer).length) {
+    safeOrder.customer = null;
+  }
 
   return safeOrder;
 };

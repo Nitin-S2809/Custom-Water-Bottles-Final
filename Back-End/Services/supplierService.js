@@ -217,7 +217,7 @@ const enrichOrdersWithCustomerData = async (orders = [], supplierId) => {
         }));
     }
 
-    const customers = await User.find({ _id: { $in: customerIds } }).select("username").lean();
+    const customers = await User.find({ _id: { $in: customerIds } }).select("username email").lean();
 
     const customersById = new Map(customers.map((customer) => [String(customer._id), customer]));
 
@@ -225,8 +225,8 @@ const enrichOrdersWithCustomerData = async (orders = [], supplierId) => {
         ...toSupplierSafeOrder(order),
         customer: String(order.supplierId || "") === String(supplierId)
             ? (() => {
-                const username = customersById.get(String(order.userId))?.username;
-                return typeof username === "string" ? { username } : null;
+                const customer = customersById.get(String(order.userId));
+                return customer ? { username: customer.username, email: customer.email } : null;
             })()
             : null,
     }));
@@ -547,7 +547,7 @@ const getSupplierOrderById = async ({ supplierId, orderId }) => {
     }
 
     const preparedOrder = await ensureSupplierPricingSnapshot(order);
-    const customer = await User.findById(order.userId).select("username").lean();
+    const customer = await User.findById(order.userId).select("username email").lean();
 
     return {
         supplier: {

@@ -37,7 +37,7 @@ const redactDiagnosticText = (value) => {
     "RAZORPAY_KEY_SECRET",
     "RAZORPAY_WEBHOOK_SECRET",
     "JWT_SECRET",
-    "SMTP_PASS",
+    "RESEND_API_KEY",
   ];
 
   for (const name of secretEnvironmentVariables) {

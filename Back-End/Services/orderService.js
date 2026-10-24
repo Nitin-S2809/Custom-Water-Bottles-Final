@@ -260,24 +260,37 @@ const generateDeliveryOtp = async ({ orderId, supplierId }) => {
       expiresInMinutes: DELIVERY_OTP_TTL_MINUTES,
     });
   } catch (emailError) {
-    const rollback = {
-      $set: {
-        deliveryOtpHash: null,
-        deliveryOtpExpiresAt: null,
-        deliveryOtpAttempts: 0,
-        deliveryOtpGeneratedAt: null,
-      },
-    };
+    const emailErrorCode = typeof emailError?.code === "string" ? emailError.code : "";
+    const deliveryRejected = ["EMAIL_SEND_NOT_ATTEMPTED", "EMAIL_PROVIDER_REJECTED"].includes(emailErrorCode);
+    if (deliveryRejected) {
+      const rollback = {
+        $set: {
+          deliveryOtpHash: null,
+          deliveryOtpExpiresAt: null,
+          deliveryOtpAttempts: 0,
+          deliveryOtpGeneratedAt: null,
+        },
+      };
 
-    try {
-      await Order.updateOne({ _id: orderId, supplierId, deliveryOtpHash: otpHash }, rollback);
-    } catch (rollbackError) {
-      console.error("Unable to invalidate delivery OTP after email failure", rollbackError.code || rollbackError.name || "UnknownError");
+      try {
+        const rollbackResult = await Order.updateOne({ _id: orderId, supplierId, deliveryOtpHash: otpHash }, rollback);
+        if (!rollbackResult.matchedCount) {
+          console.error("Unable to invalidate rejected delivery OTP", "ROLLBACK_NOT_APPLIED");
+        }
+      } catch (rollbackError) {
+        console.error("Unable to invalidate rejected delivery OTP", rollbackError.code || rollbackError.name || "UnknownError");
+      }
     }
 
-    console.error("Delivery OTP email delivery failed", emailError.code || emailError.name || "UnknownError");
+    const emailErrorName = typeof emailError?.name === "string" ? emailError.name : "UnknownError";
+    const emailStatusCode = Number.isInteger(emailError?.statusCode) ? emailError.statusCode : null;
+    console.error(
+      deliveryRejected ? "Delivery OTP email was rejected" : "Delivery OTP email delivery status is unknown",
+      emailErrorCode || emailErrorName,
+      ...(emailStatusCode === null ? [] : [emailStatusCode])
+    );
     const error = new Error("Unable to send the delivery OTP. Please try again.");
-    error.code = "DELIVERY_OTP_EMAIL_FAILED";
+    error.code = deliveryRejected ? "DELIVERY_OTP_EMAIL_REJECTED" : "DELIVERY_OTP_EMAIL_UNKNOWN";
     throw error;
   }
 
